@@ -1,0 +1,635 @@
+import React, { useState, useEffect } from 'react';
+import { Input, Button, Card, List, message, Layout, Typography, Divider, Space, Tooltip, Modal, Select, Tag, Empty } from 'antd';
+import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined } from '@ant-design/icons';
+import { CozeAPI } from '@coze/api';
+import ReactMarkdown from 'react-markdown';
+import './App.css';
+
+const { Header, Content } = Layout;
+const { Title, Text } = Typography;
+const { Option } = Select;
+
+function App() {
+  const [school, setSchool] = useState('');
+  const [contents, setContents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [apiInfo, setApiInfo] = useState(null);
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [style, setStyle] = useState('normal');
+  const [customStyle, setCustomStyle] = useState('');
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingContent, setEditingContent] = useState('');
+  const [history, setHistory] = useState([]);
+  const [isHistoryModalVisible, setIsHistoryModalVisible] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState({ school: '', style: '' });
+  
+  // 预设学校列表
+  const schoolOptions = [
+    '中山大学',
+    '华南理工大学',
+    '华南师范大学',
+    '广州大学',
+    '广东外语外贸大学',
+    '广州中医药大学',
+    '广东药科大学',
+    '广东工业大学',
+    '广州美术学院',
+    '星海音乐学院',
+    '暨南大学',
+    '广州医科大学'
+  ];
+
+  // 处理学校选择变化
+  const handleSchoolChange = (value) => {
+    setSchool(value);
+  };
+  
+  // 在组件加载时从本地存储加载历史记录
+  useEffect(() => {
+    const savedHistory = localStorage.getItem('contentHistory');
+    if (savedHistory) {
+      try {
+        setHistory(JSON.parse(savedHistory));
+      } catch (e) {
+        console.error('解析历史记录失败:', e);
+      }
+    }
+  }, []);
+
+  // 保存历史记录到本地存储
+  useEffect(() => {
+    if (history.length > 0) {
+      localStorage.setItem('contentHistory', JSON.stringify(history));
+    }
+  }, [history]);
+
+  // 文案风格选项
+  const styleOptions = [
+    { value: 'normal', label: '默认风格' },
+    { value: 'formal', label: '正式风格' },
+    { value: 'humorous', label: '幽默风趣' },
+    { value: 'emotional', label: '情感共鸣' },
+    { value: 'custom_prompt', label: '自定义提示词' }
+  ];
+
+  // 处理风格选择变化
+  const handleStyleChange = (value) => {
+    setStyle(value);
+    if (value !== 'custom_prompt') {
+      setCustomStyle('');
+    }
+  };
+
+  // 处理文案格式
+  const formatContent = (text) => {
+    // 处理文本格式
+    return text
+      .replace(/#/g, '')  // 移除#
+      .replace(/\n{3,}/g, '\n\n')  // 三个及以上的换行符替换
+      .trim();  // 移除首尾空白
+  };
+
+  const handleGenerate = async () => {
+    if (!school) {
+      message.error('请输入学校名');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      console.log('开始调用API...');
+      console.log('请求参数:', {
+        parameters: {
+          input: school,
+          style: style === 'custom_prompt' ? customStyle : style
+        },
+        workflow_id: '7496428183575904307'
+      });
+      
+      // 调用 Coze API
+      const response = await fetch('https://api.coze.cn/v1/workflow/run', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer pat_wBxRH66eSNFjZPp5A9WNMIJg5Ux8JJffhgjkArPPpj2DDdemVvQuVDQbIs47HaGY',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          parameters: {
+            input: school,
+            style: style === 'custom_prompt' ? customStyle : style
+          },
+          workflow_id: '7496428183575904307'
+        })
+      });
+
+      console.log('API响应状态:', response.status);
+      const result = await response.json();
+      console.log('API响应数据:', result);
+      
+      // 处理 API 响应
+      if (result.code === 0 && result.data) {
+        try {
+          console.log('开始解析API响应数据:', result.data);
+          const data = JSON.parse(result.data);
+          console.log('解析后的数据:', data);
+          
+          if (data.report && data.tiezi) {
+            // 处理报告内容
+            const reportContent = data.report;
+            // 处理帖子内容
+            const textArray = data.tiezi
+              .split(/—————/)  // 使用"—————"字符串分割帖子
+              .map(text => text.trim())
+              .filter(text => {
+                // 过滤掉空文本和纯英文数字的行
+                const trimmedText = text.trim();
+                return trimmedText && 
+                       !trimmedText.match(/^[A-Za-z0-9\s]+$/);  // 过滤掉纯英文和数字的行
+              })
+              .map(formatContent);
+            
+            console.log('处理后的文案数组:', textArray);
+            if (textArray.length > 0) {
+              setContents(textArray);
+              
+              // 更新报告内容
+              const historyItem = {
+                id: Date.now(),
+                timestamp: new Date().toLocaleString(),
+                school: school,
+                style: style === 'custom_prompt' ? customStyle : style,
+                contents: textArray,
+                report: reportContent
+              };
+              
+              // 添加到历史记录，限制最多保存50条记录
+              setHistory(prevHistory => {
+                const newHistory = [historyItem, ...prevHistory];
+                return newHistory.slice(0, 50);
+              });
+              
+              setApiInfo({
+                timestamp: new Date().toLocaleString(),
+                request: {
+                  input: school,
+                  style: style === 'custom_prompt' ? customStyle : style,
+                  workflow_id: '7496428183575904307'
+                },
+                response: result,
+                status: '成功',
+                report: reportContent
+              });
+              
+              message.success('文案生成成功');
+            } else {
+              console.warn('分割后的文案数组为空');
+              message.warning('未生成到文案，请重试');
+            }
+          } else {
+            console.warn('API返回数据中没有report或tiezi字段');
+            message.warning('未生成到文案，请重试');
+          }
+        } catch (error) {
+          console.error('解析API响应失败:', error);
+          console.error('原始数据:', result.data);
+          message.error('解析响应失败，请重试');
+        }
+      } else {
+        console.warn('API调用失败:', result);
+        message.warning('未生成到文案，请重试');
+      }
+    } catch (error) {
+      console.error('API调用错误:', error);
+      message.error('生成失败，请稍后重试');
+      // 如果API调用失败，显示默认文案
+      setContents([
+        `🏫 ${school}的校园生活真的太美好了！每天都能感受到浓浓的学习氛围，图书馆里座无虚席，操场上充满活力，食堂的美食更是让人流连忘返～ #校园生活 #大学生活`,
+        `🎓 ${school}的老师们都很专业，课堂氛围活跃，同学们互帮互助，在这里不仅能学到知识，还能收获珍贵的友谊！ #学习生活 #校园时光`,
+        `🎓 ${school}的每一天都是新的开始！清晨的校园格外宁静，傍晚的夕阳映照着教学楼，一切都是那么美好🌞 #校园日常 #大学生活`
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopy = (text) => {
+    // 复制时去除HTML标签
+    const plainText = text.replace(/<[^>]+>/g, '');
+    navigator.clipboard.writeText(plainText);
+    message.success('复制成功');
+  };
+
+  const handleCopyAll = () => {
+    // 复制时去除HTML标签
+    const allText = contents
+      .map(text => text.replace(/<[^>]+>/g, ''))
+      .join('\n\n');
+    navigator.clipboard.writeText(allText);
+    message.success('已复制所有文案！');
+  };
+
+  const showApiInfo = () => {
+    setIsModalVisible(true);
+  };
+
+  // 处理编辑按钮点击
+  const handleEdit = (index, content) => {
+    setEditingIndex(index);
+    setEditingContent(content.replace(/<[^>]+>/g, '')); // 去除HTML标签
+  };
+
+  // 处理保存编辑
+  const handleSaveEdit = (index) => {
+    const newContents = [...contents];
+    newContents[index] = editingContent;
+    setContents(newContents);
+    setEditingIndex(null);
+    setEditingContent('');
+    message.success('文案修改成功');
+  };
+
+  // 处理取消编辑
+  const handleCancelEdit = () => {
+    setEditingIndex(null);
+    setEditingContent('');
+  };
+  
+  // 显示历史记录
+  const showHistory = () => {
+    setIsHistoryModalVisible(true);
+  };
+
+  // 恢复历史记录
+  const restoreHistory = (historyItem) => {
+    setSchool(historyItem.school);
+    if (styleOptions.some(option => option.value === historyItem.style)) {
+      setStyle(historyItem.style);
+      setCustomStyle('');
+    } else {
+      setStyle('custom_prompt');
+      setCustomStyle(historyItem.style);
+    }
+    setContents(historyItem.contents);
+    setApiInfo(prev => ({
+      ...prev,
+      report: historyItem.report
+    }));
+    setIsHistoryModalVisible(false);
+    message.success('已恢复历史记录');
+  };
+
+  // 删除历史记录
+  const deleteHistory = (id) => {
+    setHistory(prevHistory => prevHistory.filter(item => item.id !== id));
+    message.success('已删除该条历史记录');
+  };
+
+  // 清空历史记录
+  const clearHistory = () => {
+    Modal.confirm({
+      title: '确认清空',
+      content: '确定要清空所有历史记录吗？此操作不可恢复',
+      onOk: () => {
+        setHistory([]);
+        localStorage.removeItem('contentHistory');
+        message.success('已清空所有历史记录');
+      }
+    });
+  };
+
+  // 获取过滤后的历史记录
+  const getFilteredHistory = () => {
+    return history.filter(item => {
+      const schoolMatch = !historyFilter.school || item.school.includes(historyFilter.school);
+      const styleMatch = !historyFilter.style || item.style.includes(historyFilter.style);
+      return schoolMatch && styleMatch;
+    });
+  };
+
+  return (
+    <Layout className="layout">
+      <Header className="header">
+        <div className="header-content">
+          <Title level={3} style={{ color: 'white', margin: 0 }}>
+            小红书文案生成器
+          </Title>
+          <div className="header-icons">
+            <Tooltip title="历史记录">
+              <HistoryOutlined 
+                className="header-icon" 
+                onClick={showHistory}
+                style={{ cursor: 'pointer' }}
+              />
+            </Tooltip>
+            <Tooltip title="查看API调用信息">
+              <InfoCircleOutlined 
+                className="header-icon" 
+                onClick={showApiInfo}
+                style={{ cursor: 'pointer' }}
+              />
+            </Tooltip>
+            <Tooltip title="快速生成">
+              <ThunderboltOutlined className="header-icon" />
+            </Tooltip>
+            <Tooltip title="收藏">
+              <StarOutlined className="header-icon" />
+            </Tooltip>
+            <Tooltip title="喜欢">
+              <HeartOutlined className="header-icon" />
+            </Tooltip>
+          </div>
+        </div>
+      </Header>
+      <Content className="content">
+        <div className="main-container">
+          <div className="input-section">
+            <Space>
+              <Select
+                showSearch
+                size="large"
+                placeholder="请选择或输入学校名"
+                value={school}
+                onChange={handleSchoolChange}
+                style={{ width: '300px' }}
+                className="glow-input"
+                optionFilterProp="children"
+                filterOption={(input, option) =>
+                  option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                }
+                allowClear
+              >
+                {schoolOptions.map(school => (
+                  <Option key={school} value={school}>{school}</Option>
+                ))}
+              </Select>
+              <Tooltip 
+                title={
+                  <div style={{ color: '#333', fontSize: '14px', lineHeight: '1.5' }}>
+                    仅支持下拉框中列出的学校，选择其他学校生成的文案可能与具体学校特色无关
+                  </div>
+                }
+                placement="top"
+                overlayStyle={{ maxWidth: '300px' }}
+                color="#fff"
+              >
+                <QuestionCircleOutlined style={{ fontSize: '16px', color: '#666', cursor: 'pointer' }} />
+              </Tooltip>
+            </Space>
+            <Select
+              size="large"
+              value={style}
+              onChange={handleStyleChange}
+              style={{ width: '120px', marginLeft: '16px', marginRight: '16px' }}
+              className="style-select"
+            >
+              {styleOptions.map(option => (
+                <Option key={option.value} value={option.value}>
+                  {option.label}
+                </Option>
+              ))}
+            </Select>
+            {(style === 'custom_prompt') && (
+              <Input
+                size="large"
+                placeholder="请输入提示词（如风格、主题、长短等）"
+                value={customStyle}
+                onChange={(e) => setCustomStyle(e.target.value)}
+                style={{ width: '250px', marginRight: '16px' }}
+                className="glow-input"
+              />
+            )}
+            <Button
+              type="primary"
+              size="large"
+              onClick={handleGenerate}
+              loading={loading}
+              className="glow-button"
+              onMouseEnter={() => setIsHovered(true)}
+              onMouseLeave={() => setIsHovered(false)}
+            >
+              生成文案
+            </Button>
+          </div>
+          
+          <div className="content-display">
+            <div className="left-section">
+              <Card className="content-card">
+                <div className="content-header">
+                  <Title level={4} style={{ margin: 0 }}>生成结果</Title>
+                  {contents.length > 0 && (
+                    <Button
+                      type="primary"
+                      icon={<CopyOutlined />}
+                      onClick={handleCopyAll}
+                      className="copy-all-button"
+                    >
+                      复制全部
+                    </Button>
+                  )}
+                </div>
+                <Divider />
+                {contents.length > 0 ? (
+                  <div className="content-text-container">
+                    {contents.map((item, index) => (
+                      <div key={index} className="content-text-item">
+                        <div className="content-text-header">
+                          <Text strong>文案 {index + 1}</Text>
+                          <Space>
+                            {editingIndex === index ? (
+                              <>
+                                <Button
+                                  type="primary"
+                                  icon={<SaveOutlined />}
+                                  onClick={() => handleSaveEdit(index)}
+                                  className="action-button"
+                                >
+                                  保存
+                                </Button>
+                                <Button
+                                  type="text"
+                                  icon={<CloseOutlined />}
+                                  onClick={handleCancelEdit}
+                                  className="action-button"
+                                >
+                                  取消
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  type="text"
+                                  icon={<EditOutlined />}
+                                  onClick={() => handleEdit(index, item)}
+                                  className="action-button"
+                                >
+                                  编辑
+                                </Button>
+                                <Button
+                                  type="text"
+                                  icon={<CopyOutlined />}
+                                  onClick={() => handleCopy(item)}
+                                  className="action-button"
+                                >
+                                  复制
+                                </Button>
+                              </>
+                            )}
+                          </Space>
+                        </div>
+                        {editingIndex === index ? (
+                          <Input.TextArea
+                            value={editingContent}
+                            onChange={(e) => setEditingContent(e.target.value)}
+                            autoSize={{ minRows: 3, maxRows: 6 }}
+                            className="edit-textarea"
+                          />
+                        ) : (
+                          <div 
+                            className="content-text"
+                            style={{ whiteSpace: 'pre-wrap' }}
+                          >
+                            {item}
+                          </div>
+                        )}
+                        {index < contents.length - 1 && <Divider />}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-content">
+                    <Text type="secondary">请输入学校名称并点击生成按钮</Text>
+                  </div>
+                )}
+              </Card>
+            </div>
+            
+            <div className="right-section">
+              <Card className="right-card">
+                <div className="content-header">
+                  <Title level={4} style={{ margin: 0 }}>报告展示</Title>
+                </div>
+                <Divider />
+                <div className="right-content">
+                  {apiInfo && apiInfo.report ? (
+                    <div className="report-content">
+                      <ReactMarkdown>{apiInfo.report}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <Text type="secondary">这里将展示报告内容</Text>
+                  )}
+                </div>
+              </Card>
+            </div>
+          </div>
+        </div>
+      </Content>
+
+      <Modal
+        title="API调用信息"
+        open={isModalVisible}
+        onCancel={() => setIsModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        {apiInfo ? (
+          <div className="api-info">
+            <p><strong>调用时间:</strong>{apiInfo.timestamp}</p>
+            <p><strong>状态：</strong>{apiInfo.status}</p>
+            <p><strong>请求参数:</strong></p>
+            <pre>{JSON.stringify(apiInfo.request, null, 2)}</pre>
+            <p><strong>响应数据:</strong></p>
+            <pre>{JSON.stringify(apiInfo.response, null, 2)}</pre>
+          </div>
+        ) : (
+          <Text type="secondary">暂无API调用信息</Text>
+        )}
+      </Modal>
+      
+      {/* 历史记录模态框 */}
+      <Modal
+        title="历史记录"
+        open={isHistoryModalVisible}
+        onCancel={() => setIsHistoryModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Space>
+            <Select
+              showSearch
+              placeholder="按学校名称筛选"
+              value={historyFilter.school}
+              onChange={(value) => setHistoryFilter(prev => ({ ...prev, school: value }))}
+              style={{ width: 200 }}
+              allowClear
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+              }
+            >
+              {schoolOptions.map(school => (
+                <Option key={school} value={school}>{school}</Option>
+              ))}
+            </Select>
+            <Select
+              placeholder="按风格筛选"
+              value={historyFilter.style}
+              onChange={(value) => setHistoryFilter(prev => ({ ...prev, style: value }))}
+              style={{ width: 150 }}
+              allowClear
+            >
+              {styleOptions.map(option => (
+                <Option key={option.value} value={option.value}>{option.label}</Option>
+              ))}
+            </Select>
+            <Button 
+              type="text" 
+              danger 
+              icon={<DeleteOutlined />}
+              onClick={clearHistory}
+              disabled={history.length === 0}
+            >
+              清空记录
+            </Button>
+          </Space>
+        </div>
+        
+        {getFilteredHistory().length > 0 ? (
+          <List
+            dataSource={getFilteredHistory()}
+            renderItem={item => (
+              <List.Item
+                key={item.id}
+                actions={[
+                  <Button 
+                    type="primary" 
+                    icon={<RollbackOutlined />} 
+                    onClick={() => restoreHistory(item)}
+                  >
+                    恢复
+                  </Button>,
+                  <Button 
+                    type="text" 
+                    danger 
+                    icon={<DeleteOutlined />} 
+                    onClick={() => deleteHistory(item.id)}
+                  />
+                ]}
+              >
+                <List.Item.Meta
+                  title={<span>{item.school} - {item.timestamp}</span>}
+                  description={`${item.contents.length}篇文案，风格${item.style}`}
+                />
+              </List.Item>
+            )}
+          />
+        ) : (
+          <Empty description="暂无历史记录" />
+        )}
+      </Modal>
+    </Layout>
+  );
+}
+
+export default App; 
