@@ -85,7 +85,6 @@ function App() {
   const formatContent = (text) => {
     // 处理文本格式
     return text
-      .replace(/#/g, '')  // 移除#
       .replace(/\n{3,}/g, '\n\n')  // 三个及以上的换行符替换
       .trim();  // 移除首尾空白
   };
@@ -139,7 +138,7 @@ function App() {
             const reportContent = data.report;
             // 处理帖子内容
             const textArray = data.tiezi
-              .split(/—————/)  // 使用"—————"字符串分割帖子
+              .split(/------/)  // 使用"------"字符串分割帖子
               .map(text => text.trim())
               .filter(text => {
                 // 过滤掉空文本和纯英文数字的行
