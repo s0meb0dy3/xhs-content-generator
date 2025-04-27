@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Input, Button, Card, List, message, Layout, Typography, Divider, Space, Tooltip, Modal, Select, Tag, Empty } from 'antd';
-import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined } from '@ant-design/icons';
+import { Input, Button, Card, List, message, Layout, Typography, Divider, Space, Tooltip, Modal, Select, Tag, Empty, Form } from 'antd';
+import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined, SendOutlined } from '@ant-design/icons';
 import { CozeAPI } from '@coze/api';
 import ReactMarkdown from 'react-markdown';
 import './App.css';
@@ -23,6 +23,11 @@ function App() {
   const [history, setHistory] = useState([]);
   const [isHistoryModalVisible, setIsHistoryModalVisible] = useState(false);
   const [historyFilter, setHistoryFilter] = useState({ school: '', style: '' });
+  // 推送小程序相关状态
+  const [isPushModalVisible, setIsPushModalVisible] = useState(false);
+  const [currentPushContent, setCurrentPushContent] = useState(null);
+  const [pushForm] = Form.useForm();
+  const [pushLoading, setPushLoading] = useState(false);
   
   // 预设学校列表
   const schoolOptions = [
@@ -297,6 +302,319 @@ function App() {
     });
   };
 
+  // 处理推送到小程序按钮点击
+  const handlePush = (content) => {
+    // 获取内容并分割行
+    const contentLines = content.split('\n');
+    // 第一行作为生成标题的参考，但不包含在正文中
+    const firstLine = contentLines[0].trim();
+    // 正文内容（从第二行开始）
+    const bodyContent = contentLines.slice(1).join('\n').trim();
+    
+    // 去除表情符号和特殊字符生成标题
+    const cleanTitle = firstLine.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\w\s\u4e00-\u9fa5]/g, '').trim();
+    
+    setCurrentPushContent(content);
+    pushForm.setFieldsValue({
+      title: cleanTitle || "小红书文案",
+      body: bodyContent, // 使用除第一行外的内容作为正文
+      images_list: [],
+      school_id: 60, // 默认学校ID
+      tag_id: 13, // 默认标签ID
+    });
+    setIsPushModalVisible(true);
+  };
+
+  // 验证API是否可用
+  const validateApi = async () => {
+    message.loading('正在验证API...');
+    
+    // 定义可能的API地址列表
+    const apiUrls = [
+      '/api/zc/pubs/grad_create/',
+      '/api/zc/pubs/',
+      'http://gxxsh.yonp.top/api/zc/pubs/grad_create/',
+      'https://gxxsh.yonp.top/api/zc/pubs/grad_create/'
+    ];
+    
+    let successful = false;
+    
+    for (const apiUrl of apiUrls) {
+      try {
+        message.info(`正在尝试连接: ${apiUrl}`);
+        
+        // 添加超时控制
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
+        
+        const response = await fetch(apiUrl, {
+          method: 'OPTIONS',
+          mode: 'cors',
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        clearTimeout(timeoutId); // 清除超时定时器
+        
+        console.log(`API ${apiUrl} 验证状态:`, response.status);
+        
+        if (response.ok) {
+          message.success(`API可以连接: ${apiUrl}`);
+          successful = true;
+          
+          // 记住成功的API地址
+          localStorage.setItem('successfulApiUrl', apiUrl);
+          
+          Modal.info({
+            title: 'API状态',
+            content: (
+              <div>
+                <p>API连接成功: {apiUrl}</p>
+                <p>状态码: {response.status}</p>
+                <p>这表示API服务器可以访问，但不代表推送一定会成功。</p>
+                <p>推送可能还需要正确的数据格式和授权信息。</p>
+                <p>建议:</p>
+                <ul>
+                  <li>检查网络连接</li>
+                  <li>联系API提供者确认正确的地址</li>
+                  <li>尝试使用代理服务器转发请求</li>
+                  <li>
+                    在package.json中添加代理配置：
+                    <pre style={{ background: '#f5f5f5', padding: '8px', borderRadius: '4px' }}>
+                      "proxy": "http://gxxsh.yonp.top"
+                    </pre>
+                  </li>
+                </ul>
+              </div>
+            )
+          });
+          break;
+        }
+      } catch (error) {
+        console.error(`API ${apiUrl} 验证错误:`, error);
+      }
+    }
+    
+    if (!successful) {
+      message.error(`所有API地址连接失败`);
+      Modal.error({
+        title: 'API不可用',
+        content: (
+          <div>
+            <p>错误: Failed to fetch - 无法连接到任何API地址</p>
+            <p>可能的原因:</p>
+            <ul>
+              <li>API服务器可能暂时不可用</li>
+              <li>API地址可能已更改</li>
+              <li>网络连接问题</li>
+              <li>浏览器的跨域(CORS)限制</li>
+              <li>防火墙或安全软件阻止了连接</li>
+            </ul>
+            <p>建议:</p>
+            <ul>
+              <li>检查网络连接</li>
+              <li>联系API提供者确认正确的地址</li>
+              <li>尝试使用代理服务器转发请求</li>
+            </ul>
+          </div>
+        )
+      });
+    }
+  };
+
+  // 处理推送提交
+  const handlePushSubmit = async () => {
+    try {
+      setPushLoading(true);
+      const values = await pushForm.validateFields();
+      
+      // 构建符合API要求的数据结构
+      const requestData = {
+        title: values.title,
+        body: values.body,
+        images_list: Array.isArray(values.images_list) ? values.images_list : [],
+        school_id: parseInt(values.school_id),
+        tag_id: parseInt(values.tag_id)
+      };
+      
+      console.log('推送数据:', JSON.stringify(requestData));
+      
+      // 获取验证成功的API地址或使用默认地址
+      const apiUrl = localStorage.getItem('successfulApiUrl') || '/api/zc/pubs/grad_create/';
+      console.log('使用API地址:', apiUrl);
+      
+      // 设置请求超时
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
+      
+      try {
+        // 发送推送请求
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          mode: 'cors', // 启用跨域请求
+          signal: controller.signal, // 添加超时控制
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            // 注意：这里的token需要替换为实际的授权token
+            // 'Authorization': 'Bearer yourtoken' // 如需token认证，请取消此行注释并更新token
+          },
+          body: JSON.stringify(requestData)
+        });
+        
+        clearTimeout(timeoutId); // 清除超时定时器
+        
+        console.log('推送响应状态:', response.status);
+        const responseText = await response.text();
+        console.log('推送响应内容:', responseText);
+        
+        if (response.ok) {
+          message.success('推送成功');
+          setIsPushModalVisible(false);
+          
+          // 显示更多提示信息
+          Modal.info({
+            title: '推送信息',
+            content: (
+              <div>
+                <p>推送已成功提交到小程序。</p>
+                <p>注意：如果推送后无法在小程序中看到内容，可能有以下原因：</p>
+                <ul>
+                  <li>API服务器端处理延迟</li>
+                  <li>数据需要审核</li>
+                  <li>校区ID或标签ID不正确</li>
+                  <li>可能需要登录授权 (Authorization头)</li>
+                </ul>
+                <p>请根据控制台日志中的响应信息进行排查。</p>
+              </div>
+            ),
+          });
+        } else {
+          let errorMessage = '未知错误';
+          try {
+            const errorData = JSON.parse(responseText);
+            errorMessage = errorData.message || errorData.error || JSON.stringify(errorData);
+          } catch (e) {
+            errorMessage = responseText || `服务器错误 (${response.status})`;
+          }
+          message.error(`推送失败: ${errorMessage}`);
+          
+          // 显示详细错误信息
+          Modal.error({
+            title: '推送失败',
+            content: (
+              <div>
+                <p>错误信息: {errorMessage}</p>
+                <p>状态码: {response.status}</p>
+                <p>可能的原因:</p>
+                <ul>
+                  <li>API地址不正确</li>
+                  <li>数据格式不符合要求</li>
+                  <li>服务器拒绝请求 (可能需要授权)</li>
+                  <li>网络连接问题</li>
+                </ul>
+                <p>请检查浏览器控制台获取更多信息。</p>
+              </div>
+            ),
+          });
+        }
+      } catch (fetchError) {
+        clearTimeout(timeoutId); // 清除超时定时器
+        
+        if (fetchError.name === 'AbortError') {
+          message.error('请求超时，API服务器没有响应');
+          Modal.error({
+            title: '请求超时',
+            content: (
+              <div>
+                <p>API服务器在规定时间内没有响应 (10秒)</p>
+                <p>可能的原因:</p>
+                <ul>
+                  <li>API服务器响应缓慢或不可用</li>
+                  <li>网络连接问题</li>
+                  <li>API地址不正确</li>
+                </ul>
+                <p>建议:</p>
+                <ul>
+                  <li>稍后再试</li>
+                  <li>检查API地址是否正确</li>
+                  <li>检查网络连接</li>
+                </ul>
+              </div>
+            )
+          });
+        } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
+          // 处理Failed to fetch错误
+          Modal.error({
+            title: 'API连接失败',
+            content: (
+              <div>
+                <p>错误: Failed to fetch - 无法连接到API服务器</p>
+                <p>可能的原因及解决方案:</p>
+                <ol>
+                  <li><strong>跨域(CORS)问题</strong>: 使用以下解决方案之一:
+                    <ul>
+                      <li>尝试使用相对路径: <code>/api/zc/pubs/grad_create/</code></li>
+                      <li>确保<code>src/setupProxy.js</code>文件配置正确</li>
+                      <li>使用浏览器扩展临时禁用CORS (仅开发环境)</li>
+                    </ul>
+                  </li>
+                  <li><strong>网络连接问题</strong>: 检查您的互联网连接</li>
+                  <li><strong>API服务器不可用</strong>: 联系API提供方确认服务状态</li>
+                  <li><strong>安全软件拦截</strong>: 检查防火墙或安全软件设置</li>
+                </ol>
+                <p>推荐操作:</p>
+                <p>重新启动应用，并确保使用开发服务器(<code>npm start</code>)而不是生产构建</p>
+              </div>
+            )
+          });
+        } else if (fetchError.message && fetchError.message.includes('NetworkError') || 
+                  (fetchError.message && fetchError.message.includes('CORS'))) {
+          // 处理CORS错误
+          Modal.error({
+            title: '跨域(CORS)错误',
+            content: (
+              <div>
+                <p>浏览器阻止了跨域请求</p>
+                <p>解决方案:</p>
+                <ol>
+                  <li><strong>使用代理</strong>:
+                    <ul>
+                      <li>确保<code>setupProxy.js</code>文件已正确配置</li>
+                      <li>重启开发服务器 (<code>npm start</code>)</li>
+                    </ul>
+                  </li>
+                  <li><strong>临时解决方案</strong>:
+                    <ul>
+                      <li>安装CORS浏览器扩展并启用</li>
+                      <li>或使用命令行启动Chrome并禁用同源策略 (不推荐用于生产环境)</li>
+                    </ul>
+                  </li>
+                  <li><strong>API端解决</strong>:
+                    <ul>
+                      <li>API服务器需要添加正确的CORS头</li>
+                      <li>联系API提供方添加CORS支持</li>
+                    </ul>
+                  </li>
+                </ol>
+              </div>
+            )
+          });
+        } else {
+          // 处理其他错误
+          message.error(`推送失败: ${fetchError.message || '请检查输入后重试'}`);
+        }
+      }
+    } catch (error) {
+      console.error('表单验证错误:', error);
+      message.error('表单验证失败，请检查输入');
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
   // 获取过滤后的历史记录
   const getFilteredHistory = () => {
     return history.filter(item => {
@@ -472,6 +790,14 @@ function App() {
                                 >
                                   复制
                                 </Button>
+                                <Button
+                                  type="primary"
+                                  icon={<SendOutlined />}
+                                  onClick={() => handlePush(item)}
+                                  className="action-button"
+                                >
+                                  推送到小程序
+                                </Button>
                               </>
                             )}
                           </Space>
@@ -626,6 +952,77 @@ function App() {
         ) : (
           <Empty description="暂无历史记录" />
         )}
+      </Modal>
+      
+      {/* 推送到小程序弹窗 */}
+      <Modal
+        title="推送到小程序"
+        open={isPushModalVisible}
+        onCancel={() => setIsPushModalVisible(false)}
+        footer={[
+          <Button key="verify" onClick={validateApi} style={{ float: 'left' }}>
+            验证API
+          </Button>,
+          <Tooltip key="useRelativePath" title="尝试使用相对路径解决CORS问题">
+            <Button 
+              style={{ float: 'left', marginLeft: '8px' }}
+              onClick={() => {
+                localStorage.setItem('successfulApiUrl', '/api/zc/pubs/grad_create/');
+                message.info('已切换到相对路径');
+              }}
+            >
+              使用相对路径
+            </Button>
+          </Tooltip>,
+          <Button key="cancel" onClick={() => setIsPushModalVisible(false)}>
+            取消
+          </Button>,
+          <Button key="submit" type="primary" loading={pushLoading} onClick={handlePushSubmit}>
+            确认推送
+          </Button>
+        ]}
+        width={600}
+      >
+        <Form
+          form={pushForm}
+          layout="vertical"
+        >
+          <Form.Item
+            name="title"
+            label="标题"
+            rules={[{ required: true, message: '请输入标题' }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="body"
+            label="内容"
+            rules={[{ required: true, message: '请输入内容' }]}
+          >
+            <Input.TextArea rows={6} />
+          </Form.Item>
+          <Form.Item
+            name="images_list"
+            label="图片列表 (可选)"
+          >
+            <Select mode="tags" placeholder="输入图片URL后按回车键添加">
+            </Select>
+          </Form.Item>
+          <Form.Item
+            name="school_id"
+            label="学校ID"
+            rules={[{ required: true, message: '请输入学校ID' }]}
+          >
+            <Input type="number" />
+          </Form.Item>
+          <Form.Item
+            name="tag_id"
+            label="标签ID"
+            rules={[{ required: true, message: '请输入标签ID' }]}
+          >
+            <Input type="number" />
+          </Form.Item>
+        </Form>
       </Modal>
     </Layout>
   );
