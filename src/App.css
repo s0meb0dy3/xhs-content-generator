@@ -359,7 +359,7 @@
 
 .right-content {
   padding: 16px;
-  min-height: 500px;
+  min-height: 700px;
   background: #fafafa;
   border-radius: 8px;
 }
@@ -383,7 +383,7 @@
 }
 
 .report-content {
-  max-height: 800px;
+  max-height: 1550px;
   overflow-y: auto;
   padding: 16px;
   background: #fafafa;

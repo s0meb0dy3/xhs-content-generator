@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Input, Button, Card, List, message, Layout, Typography, Divider, Space, Tooltip, Modal, Select, Tag, Empty, Form } from 'antd';
-import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined, SendOutlined } from '@ant-design/icons';
+import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined, SendOutlined, RobotOutlined } from '@ant-design/icons';
 import { CozeAPI } from '@coze/api';
 import ReactMarkdown from 'react-markdown';
 import './App.css';
@@ -28,6 +28,13 @@ function App() {
   const [currentPushContent, setCurrentPushContent] = useState(null);
   const [pushForm] = Form.useForm();
   const [pushLoading, setPushLoading] = useState(false);
+  // AI修改相关状态
+  const [aiLoading, setAiLoading] = useState(false);
+  const [isAiModifyModalVisible, setIsAiModifyModalVisible] = useState(false);
+  const [aiModifyOriginalContent, setAiModifyOriginalContent] = useState('');
+  const [aiModifyResult, setAiModifyResult] = useState('');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [editingAiModifyOriginal, setEditingAiModifyOriginal] = useState('');
   
   // 预设学校列表
   const schoolOptions = [
@@ -429,183 +436,101 @@ function App() {
     try {
       setPushLoading(true);
       const values = await pushForm.validateFields();
-      
-      // 构建符合API要求的数据结构
-      const requestData = {
-        title: values.title,
-        body: values.body,
-        images_list: Array.isArray(values.images_list) ? values.images_list : [],
-        school_id: parseInt(values.school_id),
-        tag_id: parseInt(values.tag_id)
+
+      // 构建符合 Coze API 要求的数据结构
+      const cozeRequestData = {
+        parameters: {
+          title: values.title,
+          body: values.body,
+          // 如果 Coze workflow 需要其他参数，可以在这里添加
+          // images_list: Array.isArray(values.images_list) ? values.images_list : [],
+          // school_id: parseInt(values.school_id),
+          // tag_id: parseInt(values.tag_id)
+        },
+        workflow_id: "7498187555692920884"
       };
-      
-      console.log('推送数据:', JSON.stringify(requestData));
-      
-      // 获取验证成功的API地址或使用默认地址
-      const apiUrl = localStorage.getItem('successfulApiUrl') || '/api/zc/pubs/grad_create/';
-      console.log('使用API地址:', apiUrl);
-      
+
+      console.log('推送 Coze API 数据:', JSON.stringify(cozeRequestData));
+
+      // 使用新的 Coze API 地址
+      const apiUrl = 'https://api.coze.cn/v1/workflow/run';
+      console.log('使用 Coze API 地址:', apiUrl);
+
       // 设置请求超时
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
-      
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒超时
+
       try {
-        // 发送推送请求
+        // 发送 Coze API 推送请求
         const response = await fetch(apiUrl, {
           method: 'POST',
-          mode: 'cors', // 启用跨域请求
           signal: controller.signal, // 添加超时控制
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            // 注意：这里的token需要替换为实际的授权token
-            // 'Authorization': 'Bearer yourtoken' // 如需token认证，请取消此行注释并更新token
+            // 添加 Coze API 的 Authorization 头
+            'Authorization': 'Bearer pat_wBxRH66eSNFjZPp5A9WNMIJg5Ux8JJffhgjkArPPpj2DDdemVvQuVDQbIs47HaGY'
           },
-          body: JSON.stringify(requestData)
+          body: JSON.stringify(cozeRequestData)
         });
-        
+
         clearTimeout(timeoutId); // 清除超时定时器
-        
-        console.log('推送响应状态:', response.status);
-        const responseText = await response.text();
-        console.log('推送响应内容:', responseText);
-        
-        if (response.ok) {
-          message.success('推送成功');
+
+        console.log('Coze API 推送响应状态:', response.status);
+        const result = await response.json();
+        console.log('Coze API 推送响应内容:', result);
+
+        // 处理 Coze API 的响应 (通常 code === 0 表示成功)
+        if (result.code === 0) {
+          message.success('推送成功 (Coze API)');
           setIsPushModalVisible(false);
-          
-          // 显示更多提示信息
+
+          // 显示成功信息 (可以根据 Coze API 返回的具体 data 定制)
           Modal.info({
-            title: '推送信息',
+            title: '推送成功',
             content: (
               <div>
-                <p>推送已成功提交到小程序。</p>
-                <p>注意：如果推送后无法在小程序中看到内容，可能有以下原因：</p>
-                <ul>
-                  <li>API服务器端处理延迟</li>
-                  <li>数据需要审核</li>
-                  <li>校区ID或标签ID不正确</li>
-                  <li>可能需要登录授权 (Authorization头)</li>
-                </ul>
-                <p>请根据控制台日志中的响应信息进行排查。</p>
+                <p>文案已成功通过 Coze API 推送。</p>
+                {result.data && <p>API 返回信息: {JSON.stringify(result.data)}</p>}
+                <p>请检查目标系统确认是否已接收。</p>
               </div>
             ),
           });
         } else {
-          let errorMessage = '未知错误';
-          try {
-            const errorData = JSON.parse(responseText);
-            errorMessage = errorData.message || errorData.error || JSON.stringify(errorData);
-          } catch (e) {
-            errorMessage = responseText || `服务器错误 (${response.status})`;
-          }
+          const errorMessage = result.msg || result.message || `Coze API 错误 (code: ${result.code})`;
           message.error(`推送失败: ${errorMessage}`);
-          
+
           // 显示详细错误信息
           Modal.error({
-            title: '推送失败',
+            title: '推送失败 (Coze API)',
             content: (
               <div>
                 <p>错误信息: {errorMessage}</p>
                 <p>状态码: {response.status}</p>
-                <p>可能的原因:</p>
-                <ul>
-                  <li>API地址不正确</li>
-                  <li>数据格式不符合要求</li>
-                  <li>服务器拒绝请求 (可能需要授权)</li>
-                  <li>网络连接问题</li>
-                </ul>
-                <p>请检查浏览器控制台获取更多信息。</p>
+                <p>API Code: {result.code}</p>
+                <p>请检查请求参数和网络连接。</p>
               </div>
             ),
           });
         }
       } catch (fetchError) {
         clearTimeout(timeoutId); // 清除超时定时器
-        
+
         if (fetchError.name === 'AbortError') {
-          message.error('请求超时，API服务器没有响应');
+          message.error('请求超时，Coze API 服务器没有响应');
           Modal.error({
             title: '请求超时',
-            content: (
-              <div>
-                <p>API服务器在规定时间内没有响应 (10秒)</p>
-                <p>可能的原因:</p>
-                <ul>
-                  <li>API服务器响应缓慢或不可用</li>
-                  <li>网络连接问题</li>
-                  <li>API地址不正确</li>
-                </ul>
-                <p>建议:</p>
-                <ul>
-                  <li>稍后再试</li>
-                  <li>检查API地址是否正确</li>
-                  <li>检查网络连接</li>
-                </ul>
-              </div>
-            )
-          });
-        } else if (fetchError.message && fetchError.message.includes('Failed to fetch')) {
-          // 处理Failed to fetch错误
-          Modal.error({
-            title: 'API连接失败',
-            content: (
-              <div>
-                <p>错误: Failed to fetch - 无法连接到API服务器</p>
-                <p>可能的原因及解决方案:</p>
-                <ol>
-                  <li><strong>跨域(CORS)问题</strong>: 使用以下解决方案之一:
-                    <ul>
-                      <li>尝试使用相对路径: <code>/api/zc/pubs/grad_create/</code></li>
-                      <li>确保<code>src/setupProxy.js</code>文件配置正确</li>
-                      <li>使用浏览器扩展临时禁用CORS (仅开发环境)</li>
-                    </ul>
-                  </li>
-                  <li><strong>网络连接问题</strong>: 检查您的互联网连接</li>
-                  <li><strong>API服务器不可用</strong>: 联系API提供方确认服务状态</li>
-                  <li><strong>安全软件拦截</strong>: 检查防火墙或安全软件设置</li>
-                </ol>
-                <p>推荐操作:</p>
-                <p>重新启动应用，并确保使用开发服务器(<code>npm start</code>)而不是生产构建</p>
-              </div>
-            )
-          });
-        } else if (fetchError.message && fetchError.message.includes('NetworkError') || 
-                  (fetchError.message && fetchError.message.includes('CORS'))) {
-          // 处理CORS错误
-          Modal.error({
-            title: '跨域(CORS)错误',
-            content: (
-              <div>
-                <p>浏览器阻止了跨域请求</p>
-                <p>解决方案:</p>
-                <ol>
-                  <li><strong>使用代理</strong>:
-                    <ul>
-                      <li>确保<code>setupProxy.js</code>文件已正确配置</li>
-                      <li>重启开发服务器 (<code>npm start</code>)</li>
-                    </ul>
-                  </li>
-                  <li><strong>临时解决方案</strong>:
-                    <ul>
-                      <li>安装CORS浏览器扩展并启用</li>
-                      <li>或使用命令行启动Chrome并禁用同源策略 (不推荐用于生产环境)</li>
-                    </ul>
-                  </li>
-                  <li><strong>API端解决</strong>:
-                    <ul>
-                      <li>API服务器需要添加正确的CORS头</li>
-                      <li>联系API提供方添加CORS支持</li>
-                    </ul>
-                  </li>
-                </ol>
-              </div>
-            )
+            content: <p>Coze API 服务器在规定时间内没有响应 (15秒)。请检查网络或稍后再试。</p>
           });
         } else {
-          // 处理其他错误
-          message.error(`推送失败: ${fetchError.message || '请检查输入后重试'}`);
+          // 处理其他网络或解析错误
+          message.error(`推送失败: ${fetchError.message || '网络错误或无法连接服务器'}`);
+          Modal.error({
+            title: '推送失败',
+            content: <p>无法连接到 Coze API 服务器或发生其他错误: {fetchError.message}</p>
+          });
         }
+        console.error('Coze API Fetch Error:', fetchError);
       }
     } catch (error) {
       console.error('表单验证错误:', error);
@@ -622,6 +547,109 @@ function App() {
       const styleMatch = !historyFilter.style || item.style.includes(historyFilter.style);
       return schoolMatch && styleMatch;
     });
+  };
+
+  // 处理AI修改按钮点击
+  const handleAiModify = async (content) => {
+    setAiModifyOriginalContent(content);
+    setEditingAiModifyOriginal(content); // 设置可编辑的内容
+    setAiModifyResult(''); // 初始化优化结果为空
+    setAiLoading(false); // 不显示加载状态
+    
+    // 打开弹窗
+    setIsAiModifyModalVisible(true);
+  };
+  
+  // 修改确认修改的函数
+  const confirmAiModify = async () => {
+    // 开始加载
+    setAiLoading(true);
+    
+    try {
+      console.log('开始调用AI修改API...');
+      console.log('请求参数:', {
+        parameters: {
+          tiezi: editingAiModifyOriginal,
+          prompt: aiPrompt
+        },
+        workflow_id: '7498182830016544768'
+      });
+      
+      // 调用 Coze API
+      const response = await fetch('https://api.coze.cn/v1/workflow/run', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer pat_wBxRH66eSNFjZPp5A9WNMIJg5Ux8JJffhgjkArPPpj2DDdemVvQuVDQbIs47HaGY',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          parameters: {
+            tiezi: editingAiModifyOriginal,
+            prompt: aiPrompt
+          },
+          workflow_id: '7498182830016544768'
+        })
+      });
+
+      console.log('AI修改API响应状态:', response.status);
+      const result = await response.json();
+      console.log('AI修改API响应数据:', result);
+      
+      // 处理 API 响应
+      if (result.code === 0 && result.data) {
+        try {
+          console.log('开始解析AI修改API响应数据:', result.data);
+          const data = JSON.parse(result.data);
+          console.log('解析后的数据:', data);
+          
+          if (data.output) {
+            // 使用API返回的优化结果，但仅保存结果不应用
+            const modifiedContent = data.output;
+            setAiModifyResult(modifiedContent);
+            message.success('已获取优化结果，请点击"应用并关闭"来应用修改');
+          } else {
+            console.warn('API返回数据中没有output字段');
+            message.warning('未能获取到修改结果，请重试');
+          }
+        } catch (error) {
+          console.error('解析API响应失败:', error);
+          console.error('原始数据:', result.data);
+          message.error('解析响应失败，请重试');
+        }
+      } else {
+        console.warn('API调用失败:', result);
+        message.warning('未能获取到修改结果，请重试');
+      }
+    } catch (error) {
+      console.error('API调用错误:', error);
+      message.error('修改失败，请稍后重试');
+      // 如果API调用失败，显示简单的修改
+      setAiModifyResult(`✨ ${editingAiModifyOriginal.replace(/^🏫|^🎓/, '')}`);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+  
+  // 添加一个新函数用于应用修改并关闭弹窗
+  const applyAndCloseModal = () => {
+    // 找到当前内容在数组中的索引
+    const index = contents.findIndex(item => item === aiModifyOriginalContent);
+    if (index !== -1 && aiModifyResult) {
+      // 更新内容
+      const newContents = [...contents];
+      newContents[index] = aiModifyResult;
+      setContents(newContents);
+      message.success('文案已应用并关闭！');
+    }
+    
+    // 关闭弹窗
+    setIsAiModifyModalVisible(false);
+  };
+
+  // 添加复制AI优化结果的函数
+  const copyAiResult = () => {
+    navigator.clipboard.writeText(aiModifyResult);
+    message.success('已复制优化结果');
   };
 
   return (
@@ -798,6 +826,16 @@ function App() {
                                 >
                                   推送到小程序
                                 </Button>
+                                <Button
+                                  type="primary"
+                                  icon={<RobotOutlined />}
+                                  onClick={() => handleAiModify(item)}
+                                  className="action-button"
+                                  style={{ backgroundColor: '#722ED1', borderColor: '#722ED1' }}
+                                  loading={aiLoading}
+                                >
+                                  AI修改
+                                </Button>
                               </>
                             )}
                           </Space>
@@ -960,20 +998,6 @@ function App() {
         open={isPushModalVisible}
         onCancel={() => setIsPushModalVisible(false)}
         footer={[
-          <Button key="verify" onClick={validateApi} style={{ float: 'left' }}>
-            验证API
-          </Button>,
-          <Tooltip key="useRelativePath" title="尝试使用相对路径解决CORS问题">
-            <Button 
-              style={{ float: 'left', marginLeft: '8px' }}
-              onClick={() => {
-                localStorage.setItem('successfulApiUrl', '/api/zc/pubs/grad_create/');
-                message.info('已切换到相对路径');
-              }}
-            >
-              使用相对路径
-            </Button>
-          </Tooltip>,
           <Button key="cancel" onClick={() => setIsPushModalVisible(false)}>
             取消
           </Button>,
@@ -1023,6 +1047,89 @@ function App() {
             <Input type="number" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* AI修改弹窗 */}
+      <Modal
+        title="AI文案优化"
+        open={isAiModifyModalVisible}
+        onCancel={() => setIsAiModifyModalVisible(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setIsAiModifyModalVisible(false)}>
+            取消
+          </Button>,
+          <Button 
+            key="confirm" 
+            type="primary" 
+            onClick={confirmAiModify}
+            disabled={aiLoading}
+            style={{ backgroundColor: '#1890ff', borderColor: '#1890ff' }}
+          >
+            确认优化
+          </Button>,
+          <Button 
+            key="apply" 
+            type="primary" 
+            onClick={applyAndCloseModal}
+            disabled={!aiModifyResult || aiLoading}
+            style={{ backgroundColor: '#722ED1', borderColor: '#722ED1' }}
+          >
+            应用并关闭
+          </Button>,
+        ]}
+        width={700}
+      >
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>原文：</div>
+          <Input.TextArea
+            value={editingAiModifyOriginal}
+            onChange={(e) => setEditingAiModifyOriginal(e.target.value)}
+            autoSize={{ minRows: 3, maxRows: 6 }}
+            style={{ marginBottom: '8px' }}
+          />
+        </div>
+        
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>提示词：</div>
+          <Input.TextArea
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            placeholder="输入你的要求，如文案长短、风格、语气等"
+            autoSize={{ minRows: 2, maxRows: 4 }}
+            style={{ marginBottom: '8px' }}
+          />
+        </div>
+        
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <div style={{ fontWeight: 'bold' }}>优化结果：</div>
+            {!aiLoading && (
+              <Button 
+                type="text" 
+                icon={<CopyOutlined />} 
+                onClick={copyAiResult}
+                size="small"
+              >
+                复制
+              </Button>
+            )}
+          </div>
+          {aiLoading ? (
+            <div style={{ textAlign: 'center', padding: '20px' }}>
+              <div style={{ marginBottom: '10px' }}>AI正在优化中...</div>
+            </div>
+          ) : (
+            <div style={{ 
+              padding: '12px', 
+              background: '#f0f5ff', 
+              borderRadius: '4px',
+              border: '1px solid #d6e4ff',
+              whiteSpace: 'pre-wrap' 
+            }}>
+              {aiModifyResult}
+            </div>
+          )}
+        </div>
       </Modal>
     </Layout>
   );
