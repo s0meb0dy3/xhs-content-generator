@@ -555,6 +555,7 @@ function App() {
     setEditingAiModifyOriginal(content); // 设置可编辑的内容
     setAiModifyResult(''); // 初始化优化结果为空
     setAiLoading(false); // 不显示加载状态
+    setAiPrompt('创作小红书文案'); // 设置默认提示词
     
     // 打开弹窗
     setIsAiModifyModalVisible(true);
@@ -869,14 +870,27 @@ function App() {
             
             <div className="right-section">
               <Card className="right-card">
-                <div className="content-header">
+                <div className="content-header" style={{ display: 'flex', alignItems: 'center' }}>
                   <Title level={4} style={{ margin: 0 }}>报告展示</Title>
+                  <Tooltip 
+                    title='若希望根据报告中事件创作小红书文案，请先复制所需事件，然后点击任意"AI修改"按钮，在提示词中输入"创作小红书文案"以及您的其他要求'
+                    placement="top"
+                  >
+                    <QuestionCircleOutlined style={{ color: '#999', cursor: 'pointer', fontSize: '16px', marginLeft: '4px' }} />
+                  </Tooltip>
                 </div>
                 <Divider />
                 <div className="right-content">
                   {apiInfo && apiInfo.report ? (
                     <div className="report-content">
-                      <ReactMarkdown>{apiInfo.report}</ReactMarkdown>
+                      <ReactMarkdown
+                        components={{
+                          // 自定义链接渲染，在新标签页打开
+                          a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" />
+                        }}
+                      >
+                        {apiInfo.report}
+                      </ReactMarkdown>
                     </div>
                   ) : (
                     <Text type="secondary">这里将展示报告内容</Text>
@@ -1094,7 +1108,6 @@ function App() {
           <Input.TextArea
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
-            placeholder="输入你的要求，如文案长短、风格、语气等"
             autoSize={{ minRows: 2, maxRows: 4 }}
             style={{ marginBottom: '8px' }}
           />
