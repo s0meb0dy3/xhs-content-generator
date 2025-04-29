@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Input, Button, Card, List, message, Layout, Typography, Divider, Space, Tooltip, Modal, Select, Tag, Empty, Form } from 'antd';
-import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined, SendOutlined, RobotOutlined } from '@ant-design/icons';
+import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined, SendOutlined, RobotOutlined, LikeOutlined, MessageOutlined } from '@ant-design/icons';
 import { CozeAPI } from '@coze/api';
 import ReactMarkdown from 'react-markdown';
 import './App.css';
@@ -13,6 +13,7 @@ function App() {
   const [school, setSchool] = useState('');
   const [contents, setContents] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [crawlLoading, setCrawlLoading] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [apiInfo, setApiInfo] = useState(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -23,6 +24,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [isHistoryModalVisible, setIsHistoryModalVisible] = useState(false);
   const [historyFilter, setHistoryFilter] = useState({ school: '', style: '' });
+  const [reportTitle, setReportTitle] = useState('autoGML报告展示');
   // 推送小程序相关状态
   const [isPushModalVisible, setIsPushModalVisible] = useState(false);
   const [currentPushContent, setCurrentPushContent] = useState(null);
@@ -35,6 +37,9 @@ function App() {
   const [aiModifyResult, setAiModifyResult] = useState('');
   const [aiPrompt, setAiPrompt] = useState('');
   const [editingAiModifyOriginal, setEditingAiModifyOriginal] = useState('');
+  // 添加爬取文案排序状态
+  const [crawlSortType, setCrawlSortType] = useState('default'); // 默认、热度（点赞数）、时间
+  const [crawlResults, setCrawlResults] = useState([]); // 存储爬取的原始数据，用于排序
   
   // 预设学校列表
   const schoolOptions = [
@@ -103,10 +108,11 @@ function App() {
 
   const handleGenerate = async () => {
     if (!school) {
-      message.error('请输入学校名');
+      message.error('请先选择或输入学校名称');
       return;
     }
     
+    setReportTitle('autoGML报告展示');
     setLoading(true);
     try {
       console.log('开始调用API...');
@@ -224,6 +230,270 @@ function App() {
     }
   };
 
+  // 爬虫模式处理函数
+  const handleCrawl = async () => {
+    if (!school) {
+      message.error('请先选择或输入学校名称');
+      return;
+    }
+    
+    setReportTitle('爬取文案展示');
+    setCrawlLoading(true);
+    try {
+      message.info('开始爬取' + school + '的相关数据...');
+      
+      // 调用爬虫API
+      const response = await fetch('https://api.coze.cn/v1/workflow/run', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer pat_wBxRH66eSNFjZPp5A9WNMIJg5Ux8JJffhgjkArPPpj2DDdemVvQuVDQbIs47HaGY',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          parameters: {
+            college_name: school
+          },
+          workflow_id: '7496379054380482599'
+        })
+      });
+
+      console.log('爬虫API响应状态:', response.status);
+      const result = await response.json();
+      console.log('爬虫API响应数据:', result);
+      
+      // 处理API响应
+      if (result.code === 0 && result.data) {
+        try {
+          console.log('开始解析爬虫API响应数据:', result.data);
+          let data;
+          if (typeof result.data === 'string') {
+            data = JSON.parse(result.data);
+          } else {
+            data = result.data;
+          }
+          
+          if (data.outputList && data.outputList.length > 0) {
+            // 存储原始数据用于排序
+            setCrawlResults(data.outputList);
+            // 重置排序类型
+            setCrawlSortType('default');
+            
+            // 准备爬取内容，但不立即添加到contents
+            const formattedResults = data.outputList.map(item => {
+              // 使用API返回的title字段
+              const title = item.title || '无标题';
+              const content = item.content;
+              // 添加原文链接
+              const noteUrl = item.note_url ? `\n\n原文链接: ${item.note_url}` : '';
+              // 添加上传时间，仅保留年月日
+              let uploadTime = '';
+              if (item.upload_time) {
+                // 尝试提取日期部分（年月日）
+                const dateMatch = item.upload_time.match(/\d{4}-\d{2}-\d{2}/);
+                if (dateMatch) {
+                  uploadTime = `\n\n发布时间: ${dateMatch[0]}`;
+                } else {
+                  // 如果格式不匹配，则保留原样
+                  uploadTime = `\n\n发布时间: ${item.upload_time}`;
+                }
+              }
+              
+              return `🏫 ${school}小红书文案 - ${title}\n\n${content}${noteUrl}${uploadTime}`;
+            });
+            
+            // 记录爬取结果，但不设置到contents
+            window.crawledContents = formattedResults;
+            
+            // 生成爬取文案的HTML展示
+            const reportHTML = generateCrawlResultsHTML(data.outputList, school);
+            
+            // 设置报告内容为HTML格式
+            setApiInfo({
+              timestamp: new Date().toLocaleString(),
+              request: {
+                college_name: school,
+                workflow_id: '7496379054380482599'
+              },
+              response: result,
+              status: '成功',
+              report: reportHTML
+            });
+            
+            // 添加到历史记录
+            const historyItem = {
+              id: Date.now(),
+              timestamp: new Date().toLocaleString(),
+              school: school,
+              style: '爬虫模式',
+              contents: formattedResults,
+              report: reportHTML,
+              originalData: data.outputList // 保存原始数据以便后续排序
+            };
+            
+            setHistory(prevHistory => {
+              const newHistory = [historyItem, ...prevHistory];
+              return newHistory.slice(0, 50); // 限制最多保存50条记录
+            });
+            
+            message.success('爬虫数据获取成功');
+            
+            // 添加复制到生成结果区的全局函数
+            window.copyToResults = (index) => {
+              // 如果爬取结果存在
+              if (window.crawledContents && window.crawledContents[index]) {
+                setContents(prev => [window.crawledContents[index], ...prev]);
+                message.success('已添加到生成结果区');
+              } else {
+                message.error('找不到爬取内容');
+              }
+            };
+          } else {
+            console.warn('API返回数据中没有outputList字段或为空');
+            message.warning('未获取到爬虫数据，请重试');
+          }
+        } catch (error) {
+          console.error('解析爬虫API响应失败:', error);
+          console.error('原始数据:', result.data);
+          message.error('解析响应失败，请重试');
+        }
+      } else {
+        console.warn('API调用失败:', result);
+        message.warning('未获取到爬虫数据，请重试');
+      }
+    } catch (error) {
+      console.error('爬虫模式错误:', error);
+      message.error('爬虫数据获取失败，请稍后重试');
+    } finally {
+      setCrawlLoading(false);
+    }
+  };
+
+  // 生成爬取文案HTML的函数，使用当前状态中的排序类型
+  const generateCrawlResultsHTML = (data, schoolName) => {
+    // 根据排序方式对数据进行排序
+    let sortedData = [...data];
+    
+    if (crawlSortType === 'likes') {
+      // 按点赞数排序（降序）
+      sortedData.sort((a, b) => (b.like_number || 0) - (a.like_number || 0));
+    } else if (crawlSortType === 'time') {
+      // 按时间排序（降序，最新的在前）
+      sortedData.sort((a, b) => {
+        const dateA = a.upload_time ? new Date(a.upload_time) : new Date(0);
+        const dateB = b.upload_time ? new Date(b.upload_time) : new Date(0);
+        return dateB - dateA;
+      });
+    }
+    
+    // 遍历排序后的数据生成卡片HTML
+    const cardsHTML = sortedData.map((item, index) => {
+      // 使用API返回的title字段
+      const title = item.title || '无标题';
+      
+      // 格式化日期
+      let dateDisplay = '';
+      if (item.upload_time) {
+        const dateMatch = item.upload_time.match(/\d{4}-\d{2}-\d{2}/);
+        dateDisplay = dateMatch ? dateMatch[0] : item.upload_time;
+      }
+      
+      // 创建卡片式HTML，加入"复制到生成结果区"按钮
+      return `
+<div style="margin-bottom: 20px; border: 1px solid #e8e8e8; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
+  <div style="display: flex; align-items: center; border-bottom: 1px solid #eaeaea; padding-bottom: 10px; margin-bottom: 15px;">
+    <button 
+      onclick="window.copyToResults(${index})" 
+      style="margin-right: 10px; background-color: #1890ff; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center;"
+    >
+      <span style="transform: rotate(180deg); display: inline-block; margin-right: 5px;">➔</span>
+      左移
+    </button>
+    <h3 style="margin: 0; color: #333;">${title}</h3>
+  </div>
+  
+  <div style="white-space: pre-wrap; margin-bottom: 15px;">${item.content}</div>
+  
+  <div style="color: #666; margin-bottom: 10px;">
+    ${item.note_url ? `<div><strong>原文链接</strong>: <a href="${item.note_url}" target="_blank">点击查看原文</a></div>` : ''}
+    ${dateDisplay ? `<div><strong>发布时间</strong>: ${dateDisplay}</div>` : ''}
+  </div>
+  
+  <div style="display: flex; gap: 15px; font-size: 0.9em; color: #666;">
+    <span>👍 ${item.like_number || 0}</span>
+    <span>⭐ ${item.favorite_number || 0}</span>
+    <span>💬 ${item.comment_number || 0}</span>
+  </div>
+</div>
+`;
+    }).join('\n');
+    
+    // 返回完整的HTML
+    return cardsHTML;
+  };
+  
+  // 新增函数：生成爬取文案HTML，接收排序类型作为参数
+  const generateCrawlResultsHTMLWithSort = (data, schoolName, sortType) => {
+    // 根据排序方式对数据进行排序
+    let sortedData = [...data];
+    
+    if (sortType === 'likes') {
+      // 按点赞数排序（降序）
+      sortedData.sort((a, b) => (b.like_number || 0) - (a.like_number || 0));
+    } else if (sortType === 'time') {
+      // 按时间排序（降序，最新的在前）
+      sortedData.sort((a, b) => {
+        const dateA = a.upload_time ? new Date(a.upload_time) : new Date(0);
+        const dateB = b.upload_time ? new Date(b.upload_time) : new Date(0);
+        return dateB - dateA;
+      });
+    }
+    
+    // 遍历排序后的数据生成卡片HTML
+    const cardsHTML = sortedData.map((item, index) => {
+      // 使用API返回的title字段
+      const title = item.title || '无标题';
+      
+      // 格式化日期
+      let dateDisplay = '';
+      if (item.upload_time) {
+        const dateMatch = item.upload_time.match(/\d{4}-\d{2}-\d{2}/);
+        dateDisplay = dateMatch ? dateMatch[0] : item.upload_time;
+      }
+      
+      // 创建卡片式HTML，加入"复制到生成结果区"按钮
+      return `
+<div style="margin-bottom: 20px; border: 1px solid #e8e8e8; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
+  <div style="display: flex; align-items: center; border-bottom: 1px solid #eaeaea; padding-bottom: 10px; margin-bottom: 15px;">
+    <button 
+      onclick="window.copyToResults(${index})" 
+      style="margin-right: 10px; background-color: #1890ff; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center;"
+    >
+      <span style="transform: rotate(180deg); display: inline-block; margin-right: 5px;">➔</span>
+      复制到生成结果区
+    </button>
+    <h3 style="margin: 0; color: #333;">${title}</h3>
+  </div>
+  
+  <div style="white-space: pre-wrap; margin-bottom: 15px;">${item.content}</div>
+  
+  <div style="color: #666; margin-bottom: 10px;">
+    ${item.note_url ? `<div><strong>原文链接</strong>: <a href="${item.note_url}" target="_blank">点击查看原文</a></div>` : ''}
+    ${dateDisplay ? `<div><strong>发布时间</strong>: ${dateDisplay}</div>` : ''}
+  </div>
+  
+  <div style="display: flex; gap: 15px; font-size: 0.9em; color: #666;">
+    <span>👍 ${item.like_number || 0}</span>
+    <span>⭐ ${item.favorite_number || 0}</span>
+    <span>💬 ${item.comment_number || 0}</span>
+  </div>
+</div>
+`; 
+    }).join('\n');
+    
+    // 返回完整的HTML
+    return cardsHTML;
+  };
+
   const handleCopy = (text) => {
     // 复制时去除HTML标签
     const plainText = text.replace(/<[^>]+>/g, '');
@@ -238,6 +508,18 @@ function App() {
       .join('\n\n');
     navigator.clipboard.writeText(allText);
     message.success('已复制所有文案！');
+  };
+
+  // 清除全部文案
+  const handleClearAll = () => {
+    Modal.confirm({
+      title: '确认清除',
+      content: '确定要清除所有生成的文案吗？',
+      onOk: () => {
+        setContents([]);
+        message.success('已清除所有文案');
+      }
+    });
   };
 
   const showApiInfo = () => {
@@ -745,33 +1027,62 @@ function App() {
                 className="glow-input"
               />
             )}
-            <Button
-              type="primary"
-              size="large"
-              onClick={handleGenerate}
-              loading={loading}
-              className="glow-button"
-              onMouseEnter={() => setIsHovered(true)}
-              onMouseLeave={() => setIsHovered(false)}
-            >
-              生成文案
-            </Button>
+            <div>
+              <Button
+                type="primary"
+                size="large"
+                onClick={handleGenerate}
+                loading={loading}
+                className="glow-button"
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+              >
+                autoGML模式
+              </Button>
+              <Button
+                type="primary"
+                size="large"
+                onClick={handleCrawl}
+                loading={crawlLoading}
+                className="glow-button"
+                style={{ 
+                  marginLeft: '16px',
+                  backgroundColor: '#ff4d4f',
+                  borderColor: '#ff4d4f'
+                }}
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+              >
+                爬虫模式
+              </Button>
+            </div>
           </div>
           
           <div className="content-display">
             <div className="left-section">
-              <Card className="content-card">
+              <Card className="content-card" style={{ height: '100%' }}>
                 <div className="content-header">
                   <Title level={4} style={{ margin: 0 }}>生成结果</Title>
                   {contents.length > 0 && (
-                    <Button
-                      type="primary"
-                      icon={<CopyOutlined />}
-                      onClick={handleCopyAll}
-                      className="copy-all-button"
-                    >
-                      复制全部
-                    </Button>
+                    <Space>
+                      <Button
+                        type="primary"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={handleClearAll}
+                        className="clear-all-button"
+                      >
+                        清除全部
+                      </Button>
+                      <Button
+                        type="primary"
+                        icon={<CopyOutlined />}
+                        onClick={handleCopyAll}
+                        className="copy-all-button"
+                      >
+                        复制全部
+                      </Button>
+                    </Space>
                   )}
                 </div>
                 <Divider />
@@ -871,7 +1182,7 @@ function App() {
             <div className="right-section">
               <Card className="right-card">
                 <div className="content-header" style={{ display: 'flex', alignItems: 'center' }}>
-                  <Title level={4} style={{ margin: 0 }}>报告展示</Title>
+                  <Title level={4} style={{ margin: 0 }}>{reportTitle}</Title>
                   <Tooltip 
                     title='若希望根据报告中事件创作小红书文案，请先复制所需事件，然后点击任意"AI修改"按钮，在提示词中输入"创作小红书文案"以及您的其他要求'
                     placement="top"
@@ -883,14 +1194,81 @@ function App() {
                 <div className="right-content">
                   {apiInfo && apiInfo.report ? (
                     <div className="report-content">
-                      <ReactMarkdown
-                        components={{
-                          // 自定义链接渲染，在新标签页打开
-                          a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" />
-                        }}
-                      >
-                        {apiInfo.report}
-                      </ReactMarkdown>
+                      {reportTitle === '爬取文案展示' ? (
+                        <>
+                          {/* 添加排序控件 */}
+                          <div style={{ display: 'flex', marginBottom: '20px', backgroundColor: '#f0f2f5', padding: '10px', borderRadius: '8px' }}>
+                            <div style={{ fontWeight: 'bold', marginRight: '10px', display: 'flex', alignItems: 'center' }}>排序方式:</div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                              <Button
+                                type={crawlSortType === 'default' ? 'primary' : 'default'}
+                                onClick={() => {
+                                  // 直接使用新的排序类型值而不依赖状态更新
+                                  const newSortType = 'default';
+                                  setCrawlSortType(newSortType);
+                                  if (crawlResults.length > 0) {
+                                    // 生成HTML时使用新的排序类型，而不是状态
+                                    const newHTML = generateCrawlResultsHTMLWithSort(crawlResults, school, newSortType);
+                                    setApiInfo(prev => ({
+                                      ...prev,
+                                      report: newHTML
+                                    }));
+                                  }
+                                }}
+                              >
+                                默认
+                              </Button>
+                              <Button
+                                type={crawlSortType === 'likes' ? 'primary' : 'default'}
+                                onClick={() => {
+                                  // 直接使用新的排序类型值而不依赖状态更新
+                                  const newSortType = 'likes';
+                                  setCrawlSortType(newSortType);
+                                  if (crawlResults.length > 0) {
+                                    // 生成HTML时使用新的排序类型，而不是状态
+                                    const newHTML = generateCrawlResultsHTMLWithSort(crawlResults, school, newSortType);
+                                    setApiInfo(prev => ({
+                                      ...prev,
+                                      report: newHTML
+                                    }));
+                                  }
+                                }}
+                                icon={<LikeOutlined />}
+                              >
+                                按热度排序
+                              </Button>
+                              <Button
+                                type={crawlSortType === 'time' ? 'primary' : 'default'}
+                                onClick={() => {
+                                  // 直接使用新的排序类型值而不依赖状态更新
+                                  const newSortType = 'time';
+                                  setCrawlSortType(newSortType);
+                                  if (crawlResults.length > 0) {
+                                    // 生成HTML时使用新的排序类型，而不是状态
+                                    const newHTML = generateCrawlResultsHTMLWithSort(crawlResults, school, newSortType);
+                                    setApiInfo(prev => ({
+                                      ...prev,
+                                      report: newHTML
+                                    }));
+                                  }
+                                }}
+                              >
+                                按时间排序 🕒
+                              </Button>
+                            </div>
+                          </div>
+                          <div dangerouslySetInnerHTML={{ __html: apiInfo.report }} />
+                        </>
+                      ) : (
+                        <ReactMarkdown
+                          components={{
+                            // 自定义链接渲染，在新标签页打开
+                            a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" />
+                          }}
+                        >
+                          {apiInfo.report}
+                        </ReactMarkdown>
+                      )}
                     </div>
                   ) : (
                     <Text type="secondary">这里将展示报告内容</Text>

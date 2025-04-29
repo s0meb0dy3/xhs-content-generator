@@ -262,6 +262,27 @@
   padding: 16px;
   background: #fafafa;
   border-radius: 8px;
+  max-height: 1550px;
+  overflow-y: auto;
+}
+
+/* 生成结果区滚动条样式 */
+.content-text-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.content-text-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.content-text-container::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.content-text-container::-webkit-scrollbar-thumb:hover {
+  background: #666;
 }
 
 .content-text-item {
