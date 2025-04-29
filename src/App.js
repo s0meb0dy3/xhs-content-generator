@@ -339,9 +339,32 @@ function App() {
             
             // 添加复制到生成结果区的全局函数
             window.copyToResults = (index) => {
+              // 如果存在排序后的索引映射，使用它来获取正确的索引
+              const originalIndex = window.sortedIndexMap ? window.sortedIndexMap[index] : index;
+              
               // 如果爬取结果存在
-              if (window.crawledContents && window.crawledContents[index]) {
-                setContents(prev => [window.crawledContents[index], ...prev]);
+              if (window.crawledContents && window.crawledContents[originalIndex]) {
+                // 获取原始文案内容
+                let content = window.crawledContents[originalIndex];
+                
+                // 处理文案格式
+                try {
+                  // 1. 去掉前缀 "🏫 XX大学小红书文案 - "
+                  content = content.replace(/^🏫[\s\S]*?小红书文案[\s\S]*?-\s*/g, '');
+                  
+                  // 2. 去掉原文链接和发布时间
+                  content = content.replace(/\n\n原文链接:[\s\S]*?(?=\n\n|$)/g, '');
+                  content = content.replace(/\n\n发布时间:[\s\S]*?(?=\n\n|$)/g, '');
+                  
+                  // 3. 清理可能残留的多余换行
+                  content = content.replace(/\n{3,}/g, '\n\n');
+                  content = content.trim();
+                } catch (e) {
+                  console.error('处理文案格式时出错:', e);
+                }
+                
+                // 添加处理后的内容到生成区
+                setContents(prev => [content, ...prev]);
                 message.success('已添加到生成结果区');
               } else {
                 message.error('找不到爬取内容');
@@ -384,6 +407,12 @@ function App() {
         return dateB - dateA;
       });
     }
+    
+    // 保存排序后的数据索引映射，用于"左移"按钮
+    window.sortedIndexMap = sortedData.map(item => {
+      // 找到原始数据中这个item的索引
+      return data.findIndex(original => original === item);
+    });
     
     // 遍历排序后的数据生成卡片HTML
     const cardsHTML = sortedData.map((item, index) => {
@@ -448,6 +477,12 @@ function App() {
       });
     }
     
+    // 保存排序后的数据索引映射，用于"左移"按钮
+    window.sortedIndexMap = sortedData.map(item => {
+      // 找到原始数据中这个item的索引
+      return data.findIndex(original => original === item);
+    });
+    
     // 遍历排序后的数据生成卡片HTML
     const cardsHTML = sortedData.map((item, index) => {
       // 使用API返回的title字段
@@ -469,7 +504,7 @@ function App() {
       style="margin-right: 10px; background-color: #1890ff; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center;"
     >
       <span style="transform: rotate(180deg); display: inline-block; margin-right: 5px;">➔</span>
-      复制到生成结果区
+      左移
     </button>
     <h3 style="margin: 0; color: #333;">${title}</h3>
   </div>
