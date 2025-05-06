@@ -40,6 +40,12 @@ function App() {
   // 添加爬取文案排序状态
   const [crawlSortType, setCrawlSortType] = useState('default'); // 默认、热度（点赞数）、时间
   const [crawlResults, setCrawlResults] = useState([]); // 存储爬取的原始数据，用于排序
+  // 添加图片放大查看相关状态
+  const [lightboxVisible, setLightboxVisible] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState('');
+  // 添加图片选择相关状态
+  const [isImageSelectorVisible, setIsImageSelectorVisible] = useState(false);
+  const [availableImages, setAvailableImages] = useState([]);
   
   // 预设学校列表
   const schoolOptions = [
@@ -77,7 +83,78 @@ function App() {
   // 保存历史记录到本地存储
   useEffect(() => {
     if (history.length > 0) {
-      localStorage.setItem('contentHistory', JSON.stringify(history));
+      try {
+        // 优化历史记录，删除过大的数据以避免超出存储配额
+        const optimizedHistory = history.map(item => {
+          // 创建一个新对象，避免修改原始数据
+          const optimizedItem = { ...item };
+          
+          // 如果存在originalData且包含image_list，对其进行处理
+          if (optimizedItem.originalData) {
+            // 限制原始数据数量，最多保留10条
+            if (optimizedItem.originalData.length > 10) {
+              optimizedItem.originalData = optimizedItem.originalData.slice(0, 10);
+            }
+            
+            // 处理每条数据中的image_list，移除以避免存储过大
+            optimizedItem.originalData = optimizedItem.originalData.map(data => {
+              const newData = { ...data };
+              // 不存储图片列表，只保留是否有图片的标记
+              if (newData.image_list) {
+                newData.has_images = true;
+                delete newData.image_list;
+              }
+              return newData;
+            });
+          }
+          
+          // 限制报告HTML大小
+          if (typeof optimizedItem.report === 'string' && optimizedItem.report.length > 5000) {
+            optimizedItem.report = optimizedItem.report.substring(0, 5000) + '... (内容已截断)';
+          }
+          
+          // 限制contents数组大小
+          if (optimizedItem.contents && optimizedItem.contents.length > 5) {
+            optimizedItem.contents = optimizedItem.contents.slice(0, 5);
+          }
+          
+          return optimizedItem;
+        });
+        
+        // 限制历史记录数量，最多保存20条
+        const limitedHistory = optimizedHistory.slice(0, 20);
+        
+        // 尝试存储，如果失败则进一步减少数据量
+        const historyString = JSON.stringify(limitedHistory);
+        try {
+          localStorage.setItem('contentHistory', historyString);
+        } catch (e) {
+          console.warn('存储历史记录失败，尝试进一步减少数据量:', e);
+          
+          // 如果失败，进一步限制历史记录数量
+          const furtherLimitedHistory = limitedHistory.slice(0, 10);
+          
+          // 移除更多可能占用空间的字段
+          const minimalHistory = furtherLimitedHistory.map(item => ({
+            id: item.id,
+            timestamp: item.timestamp,
+            school: item.school,
+            style: item.style,
+            contents: item.contents ? item.contents.slice(0, 3) : []
+          }));
+          
+          try {
+            localStorage.setItem('contentHistory', JSON.stringify(minimalHistory));
+            console.log('成功存储精简的历史记录');
+          } catch (storageError) {
+            console.error('无法存储历史记录，即使精简后也超出配额:', storageError);
+            // 完全失败时，显示消息给用户
+            message.warning('无法保存历史记录，本地存储空间已满');
+          }
+        }
+      } catch (e) {
+        console.error('处理历史记录时出错:', e);
+      }
     }
   }, [history]);
 
@@ -391,6 +468,17 @@ function App() {
     }
   };
 
+  // 新增函数：处理图片点击放大
+  const handleImageClick = (imageUrl) => {
+    setLightboxImage(imageUrl);
+    setLightboxVisible(true);
+  };
+
+  // 关闭图片查看器
+  const closeLightbox = () => {
+    setLightboxVisible(false);
+  };
+
   // 生成爬取文案HTML的函数，使用当前状态中的排序类型
   const generateCrawlResultsHTML = (data, schoolName) => {
     // 根据排序方式对数据进行排序
@@ -414,6 +502,12 @@ function App() {
       return data.findIndex(original => original === item);
     });
     
+    // 定义图片点击函数
+    window.openLightbox = (imageUrl) => {
+      setLightboxImage(imageUrl);
+      setLightboxVisible(true);
+    };
+    
     // 遍历排序后的数据生成卡片HTML
     const cardsHTML = sortedData.map((item, index) => {
       // 使用API返回的title字段
@@ -424,6 +518,37 @@ function App() {
       if (item.upload_time) {
         const dateMatch = item.upload_time.match(/\d{4}-\d{2}-\d{2}/);
         dateDisplay = dateMatch ? dateMatch[0] : item.upload_time;
+      }
+      
+      // 处理图片列表
+      let imagesHTML = '';
+      if (item.image_list) {
+        let imageUrls = item.image_list;
+        
+        // 如果image_list是字符串，尝试解析为数组
+        if (typeof imageUrls === 'string') {
+          try {
+            imageUrls = JSON.parse(imageUrls);
+          } catch (e) {
+            console.error('解析图片列表失败:', e);
+            imageUrls = [];
+          }
+        }
+        
+        // 只有当图片列表非空时才显示图片区域
+        if (Array.isArray(imageUrls) && imageUrls.length > 0) {
+          imagesHTML = `
+<div style="margin-top: 15px; margin-bottom: 15px;">
+  <div style="font-weight: bold; margin-bottom: 10px;">图片列表:</div>
+  <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+    ${imageUrls.map((url, imgIndex) => `
+      <div style="width: 200px; height: 200px; overflow: hidden; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); cursor: pointer;" onclick="window.openLightbox('${url}')">
+        <img src="${url}" alt="小红书图片" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='https://via.placeholder.com/200x200?text=加载失败'; this.onerror=null;" />
+      </div>
+    `).join('')}
+  </div>
+</div>`;
+        }
       }
       
       // 创建卡片式HTML，加入"复制到生成结果区"按钮
@@ -441,6 +566,8 @@ function App() {
   </div>
   
   <div style="white-space: pre-wrap; margin-bottom: 15px;">${item.content}</div>
+  
+  ${imagesHTML}
   
   <div style="color: #666; margin-bottom: 10px;">
     ${item.note_url ? `<div><strong>原文链接</strong>: <a href="${item.note_url}" target="_blank">点击查看原文</a></div>` : ''}
@@ -483,6 +610,12 @@ function App() {
       return data.findIndex(original => original === item);
     });
     
+    // 定义图片点击函数
+    window.openLightbox = (imageUrl) => {
+      setLightboxImage(imageUrl);
+      setLightboxVisible(true);
+    };
+    
     // 遍历排序后的数据生成卡片HTML
     const cardsHTML = sortedData.map((item, index) => {
       // 使用API返回的title字段
@@ -493,6 +626,37 @@ function App() {
       if (item.upload_time) {
         const dateMatch = item.upload_time.match(/\d{4}-\d{2}-\d{2}/);
         dateDisplay = dateMatch ? dateMatch[0] : item.upload_time;
+      }
+      
+      // 处理图片列表
+      let imagesHTML = '';
+      if (item.image_list) {
+        let imageUrls = item.image_list;
+        
+        // 如果image_list是字符串，尝试解析为数组
+        if (typeof imageUrls === 'string') {
+          try {
+            imageUrls = JSON.parse(imageUrls);
+          } catch (e) {
+            console.error('解析图片列表失败:', e);
+            imageUrls = [];
+          }
+        }
+        
+        // 只有当图片列表非空时才显示图片区域
+        if (Array.isArray(imageUrls) && imageUrls.length > 0) {
+          imagesHTML = `
+<div style="margin-top: 15px; margin-bottom: 15px;">
+  <div style="font-weight: bold; margin-bottom: 10px;">图片列表:</div>
+  <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+    ${imageUrls.map((url, imgIndex) => `
+      <div style="width: 200px; height: 200px; overflow: hidden; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); cursor: pointer;" onclick="window.openLightbox('${url}')">
+        <img src="${url}" alt="小红书图片" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='https://via.placeholder.com/200x200?text=加载失败'; this.onerror=null;" />
+      </div>
+    `).join('')}
+  </div>
+</div>`;
+        }
       }
       
       // 创建卡片式HTML，加入"复制到生成结果区"按钮
@@ -510,6 +674,8 @@ function App() {
   </div>
   
   <div style="white-space: pre-wrap; margin-bottom: 15px;">${item.content}</div>
+  
+  ${imagesHTML}
   
   <div style="color: #666; margin-bottom: 10px;">
     ${item.note_url ? `<div><strong>原文链接</strong>: <a href="${item.note_url}" target="_blank">点击查看原文</a></div>` : ''}
@@ -638,11 +804,158 @@ function App() {
     // 去除表情符号和特殊字符生成标题
     const cleanTitle = firstLine.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\w\s\u4e00-\u9fa5]/g, '').trim();
     
+    // 查找与该内容相关的图片URL
+    let imageUrls = [];
+    
+    // 同时准备可用的图片列表，用于图片选择器
+    let allAvailableImages = [];
+    let directlyRelatedImages = []; // 用于存储与当前文案直接相关的图片
+    
+    // 1. 从爬虫结果中收集所有图片
+    if (crawlResults && crawlResults.length > 0) {
+      crawlResults.forEach(item => {
+        if (item.image_list) {
+          let images = [];
+          if (typeof item.image_list === 'string') {
+            try {
+              images = JSON.parse(item.image_list);
+            } catch (e) {
+              console.error('解析图片列表失败:', e);
+            }
+          } else if (Array.isArray(item.image_list)) {
+            images = item.image_list;
+          }
+          
+          // 检查图片是否与当前文案直接相关
+          // 如果标题为空或"未知标题"，则不视为相关
+          const hasValidTitle = item.title && item.title.trim() !== '' && item.title !== '未知标题';
+          const isDirectlyRelated = hasValidTitle && (
+            content.includes(item.content) || 
+            item.content.includes(content) ||
+            content.includes(item.title) || 
+            item.title.includes(firstLine)
+          );
+          
+          // 添加图片到可用列表，并标记来源
+          images.forEach(url => {
+            if (url) {
+              // 创建图片对象
+              const imageObj = {
+                url: url,
+                source: `${item.title || '未知标题'} (爬取结果)`,
+                isRelated: isDirectlyRelated
+              };
+              
+              // 避免重复添加
+              if (!allAvailableImages.some(img => img.url === url)) {
+                allAvailableImages.push(imageObj);
+                
+                // 如果是直接相关的图片，也添加到相关图片列表
+                if (isDirectlyRelated) {
+                  directlyRelatedImages.push(imageObj);
+                  
+                  // 如果是直接相关的图片，也添加到默认图片URL中
+                  if (!imageUrls.includes(url)) {
+                    imageUrls.push(url);
+                  }
+                }
+              }
+            }
+          });
+        }
+      });
+    }
+    
+    // 2. 从历史记录中收集图片
+    if (history.length > 0) {
+      history.forEach(historyItem => {
+        if (historyItem.originalData && Array.isArray(historyItem.originalData)) {
+          historyItem.originalData.forEach(data => {
+            if (data.image_list) {
+              let images = [];
+              if (typeof data.image_list === 'string') {
+                try {
+                  images = JSON.parse(data.image_list);
+                } catch (e) {
+                  console.error('解析历史图片列表失败:', e);
+                }
+              } else if (Array.isArray(data.image_list)) {
+                images = data.image_list;
+              }
+              
+              // 检查图片是否与当前文案直接相关
+              // 如果标题为空或"未知标题"，则不视为相关
+              const hasValidTitle = data.title && data.title.trim() !== '' && data.title !== '未知标题';
+              const isRelatedToCurrentContent = hasValidTitle && (
+                content.includes(data.content) || 
+                data.content.includes(content) ||
+                content.includes(data.title) || 
+                data.title.includes(firstLine)
+              );
+              
+              // 添加图片到可用列表，并标记来源
+              images.forEach(url => {
+                if (url) {
+                  // 创建图片对象
+                  const imageObj = {
+                    url: url,
+                    source: `${data.title || '未知标题'} (历史记录)`,
+                    isRelated: isRelatedToCurrentContent
+                  };
+                  
+                  // 避免重复添加
+                  if (!allAvailableImages.some(img => img.url === url)) {
+                    allAvailableImages.push(imageObj);
+                    
+                    // 如果是直接相关的图片，也添加到相关图片列表
+                    if (isRelatedToCurrentContent) {
+                      directlyRelatedImages.push(imageObj);
+                      
+                      // 如果是直接相关的图片，也添加到默认图片URL中
+                      if (!imageUrls.includes(url)) {
+                        imageUrls.push(url);
+                      }
+                    }
+                  }
+                }
+              });
+            }
+          });
+        }
+      });
+    }
+    
+    // 3. 添加一些预设的示例图片（如果需要）
+    const presetImages = [
+      "https://media.nfnews.com/nfplus/ossfs/pic/xy/202404/23/a9942aac4f154d809690cd5c7364ecb9_batchwm.jpg",
+      "https://media.nfnews.com/nfplus/ossfs/pic/xy/202404/25/1831cf1af0d04c78a7a92af6cea8e399_batchwm.jpg",
+      "https://media.nfnews.com/nfplus/ossfs/pic/xy/202404/24/e2a3c8fd651d4b6cabe1a8da1a6c4c8d_batchwm.jpg"
+    ];
+    
+    presetImages.forEach((url, index) => {
+      if (!allAvailableImages.some(img => img.url === url)) {
+        allAvailableImages.push({
+          url: url,
+          source: '推荐图片',
+          isRelated: false
+        });
+      }
+    });
+    
+    // 4. 对图片列表进行排序，相关的图片排在前面
+    const sortedImages = [
+      ...directlyRelatedImages, // 直接相关的图片放在最前面
+      ...allAvailableImages.filter(img => !img.isRelated) // 不相关的图片放在后面
+    ];
+    
+    // 设置可用图片列表为排序后的列表
+    setAvailableImages(sortedImages);
+    
     setCurrentPushContent(content);
     pushForm.setFieldsValue({
       title: cleanTitle || "小红书文案",
       body: bodyContent, // 使用除第一行外的内容作为正文
-      images_list: [],
+      images_list: imageUrls, // 设置找到的图片URL列表
       school_id: 60, // 默认学校ID
       tag_id: 13, // 默认标签ID
     });
@@ -872,7 +1185,7 @@ function App() {
     setEditingAiModifyOriginal(content); // 设置可编辑的内容
     setAiModifyResult(''); // 初始化优化结果为空
     setAiLoading(false); // 不显示加载状态
-    setAiPrompt('创作小红书文案'); // 设置默认提示词
+    setAiPrompt(''); // 设置默认提示词为空
     
     // 打开弹窗
     setIsAiModifyModalVisible(true);
@@ -890,7 +1203,7 @@ function App() {
           tiezi: editingAiModifyOriginal,
           prompt: aiPrompt
         },
-        workflow_id: '7498182830016544768'
+        workflow_id: '7499034843725135923'
       });
       
       // 调用 Coze API
@@ -905,7 +1218,7 @@ function App() {
             tiezi: editingAiModifyOriginal,
             prompt: aiPrompt
           },
-          workflow_id: '7498182830016544768'
+          workflow_id: '7499034843725135923'
         })
       });
 
@@ -916,23 +1229,26 @@ function App() {
       // 处理 API 响应
       if (result.code === 0 && result.data) {
         try {
-          console.log('开始解析AI修改API响应数据:', result.data);
-          const data = JSON.parse(result.data);
-          console.log('解析后的数据:', data);
+          // 检查result.data是否为字符串，如果是则解析JSON
+          let parsedData;
+          if (typeof result.data === 'string') {
+            parsedData = JSON.parse(result.data);
+            console.log('解析后的JSON数据:', parsedData);
+          } else {
+            parsedData = result.data;
+          }
           
-          if (data.output) {
-            // 使用API返回的优化结果，但仅保存结果不应用
-            const modifiedContent = data.output;
-            setAiModifyResult(modifiedContent);
+          // 直接使用解析后的数据中的output字段
+          if (parsedData && parsedData.output) {
+            setAiModifyResult(parsedData.output);
             message.success('已获取优化结果，请点击"应用并关闭"来应用修改');
           } else {
-            console.warn('API返回数据中没有output字段');
+            console.warn('API返回数据中没有output字段:', parsedData);
             message.warning('未能获取到修改结果，请重试');
           }
         } catch (error) {
-          console.error('解析API响应失败:', error);
-          console.error('原始数据:', result.data);
-          message.error('解析响应失败，请重试');
+          console.error('解析API返回数据失败:', error, result.data);
+          message.error('解析API返回数据失败，请重试');
         }
       } else {
         console.warn('API调用失败:', result);
@@ -968,6 +1284,21 @@ function App() {
   const copyAiResult = () => {
     navigator.clipboard.writeText(aiModifyResult);
     message.success('已复制优化结果');
+  };
+
+  // 添加图片到表单的函数
+  const handleAddImage = (imageUrl) => {
+    // 获取当前表单中的图片列表
+    const currentImages = pushForm.getFieldValue('images_list') || [];
+    // 确保不重复添加相同URL
+    if (!currentImages.includes(imageUrl)) {
+      // 添加新图片URL到列表
+      pushForm.setFieldsValue({
+        images_list: [...currentImages, imageUrl]
+      });
+    }
+    // 关闭图片选择器
+    setIsImageSelectorVisible(false);
   };
 
   return (
@@ -1181,7 +1512,7 @@ function App() {
                                   style={{ backgroundColor: '#722ED1', borderColor: '#722ED1' }}
                                   loading={aiLoading}
                                 >
-                                  AI修改
+                                  AI生成
                                 </Button>
                               </>
                             )}
@@ -1455,8 +1786,39 @@ function App() {
           <Form.Item
             name="images_list"
             label="图片列表 (可选)"
+            extra={
+              <div>
+                <div>请输入图片URL，每个URL将作为一张图片。可以添加多个URL。</div>
+                <Button 
+                  type="primary" 
+                  icon={<SearchOutlined />} 
+                  size="small" 
+                  style={{ marginTop: '8px' }}
+                  onClick={() => setIsImageSelectorVisible(true)}
+                >
+                  从图片库选择
+                </Button>
+              </div>
+            }
           >
-            <Select mode="tags" placeholder="输入图片URL后按回车键添加">
+            <Select 
+              mode="tags" 
+              placeholder="输入图片URL后按回车键添加"
+              style={{ width: '100%' }}
+              tokenSeparators={[',']}
+              dropdownRender={menu => (
+                <div>
+                  {menu}
+                  <Divider style={{ margin: '4px 0' }} />
+                  <div style={{ padding: '8px', textAlign: 'center' }}>
+                    <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
+                      支持格式: ["https://example.com/image.jpg"]
+                    </Typography.Text>
+                  </div>
+                </div>
+              )}
+            >
+              {/* 如果有预设的图片URL，这里可以显示为选项 */}
             </Select>
           </Form.Item>
           <Form.Item
@@ -1545,15 +1907,178 @@ function App() {
               <div style={{ marginBottom: '10px' }}>AI正在优化中...</div>
             </div>
           ) : (
-            <div style={{ 
-              padding: '12px', 
-              background: '#f0f5ff', 
-              borderRadius: '4px',
-              border: '1px solid #d6e4ff',
-              whiteSpace: 'pre-wrap' 
-            }}>
-              {aiModifyResult}
-            </div>
+            <Input.TextArea
+              value={aiModifyResult}
+              onChange={(e) => setAiModifyResult(e.target.value)}
+              autoSize={{ minRows: 6, maxRows: 15 }}
+              style={{ 
+                backgroundColor: '#f0f5ff',
+                border: '1px solid #d6e4ff',
+              }}
+            />
+          )}
+        </div>
+      </Modal>
+
+      {/* 图片放大查看器 */}
+      {lightboxVisible && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999,
+            cursor: 'pointer',
+          }}
+          onClick={closeLightbox}
+        >
+          <div
+            style={{
+              position: 'relative',
+              maxWidth: '90%',
+              maxHeight: '90%',
+            }}
+          >
+            <img
+              src={lightboxImage}
+              alt="放大查看"
+              style={{
+                maxWidth: '100%',
+                maxHeight: '90vh',
+                objectFit: 'contain',
+              }}
+              onClick={(e) => e.stopPropagation()} // 防止点击图片时关闭
+              onError={(e) => {
+                e.target.src = 'https://via.placeholder.com/800x600?text=图片加载失败';
+                e.target.onerror = null;
+              }}
+            />
+            <button
+              style={{
+                position: 'absolute',
+                top: '-40px',
+                right: '0',
+                backgroundColor: 'transparent',
+                border: 'none',
+                color: 'white',
+                fontSize: '24px',
+                cursor: 'pointer',
+              }}
+              onClick={closeLightbox}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 图片选择器弹窗 */}
+      <Modal
+        title="选择图片"
+        open={isImageSelectorVisible}
+        onCancel={() => setIsImageSelectorVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+          {availableImages.length > 0 ? (
+            <>
+              {availableImages.some(img => img.isRelated) && (
+                <div style={{ marginBottom: '16px' }}>
+                  <Typography.Title level={5} style={{ marginBottom: '8px' }}>与当前文案相关的图片</Typography.Title>
+                  <List
+                    grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 3, xl: 4, xxl: 4 }}
+                    dataSource={availableImages.filter(img => img.isRelated)}
+                    renderItem={item => (
+                      <List.Item>
+                        <Card
+                          hoverable
+                          cover={
+                            <div style={{ height: 150, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8f8f8', border: '2px solid #1890ff' }}>
+                              <img 
+                                alt="图片" 
+                                src={item.url} 
+                                style={{ width: '100%', objectFit: 'cover' }}
+                                onError={(e) => {
+                                  e.target.src = 'https://via.placeholder.com/200x150?text=加载失败';
+                                  e.target.onerror = null;
+                                }}
+                              />
+                            </div>
+                          }
+                          onClick={() => handleAddImage(item.url)}
+                        >
+                          <Card.Meta
+                            description={
+                              <div>
+                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                  {item.source}
+                                </div>
+                                <Button type="primary" size="small" block>
+                                  选择此图片
+                                </Button>
+                              </div>
+                            }
+                          />
+                        </Card>
+                      </List.Item>
+                    )}
+                  />
+                </div>
+              )}
+              
+              {availableImages.some(img => !img.isRelated) && (
+                <div>
+                  <Typography.Title level={5} style={{ marginBottom: '8px' }}>其他可用图片</Typography.Title>
+                  <List
+                    grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 3, xl: 4, xxl: 4 }}
+                    dataSource={availableImages.filter(img => !img.isRelated)}
+                    renderItem={item => (
+                      <List.Item>
+                        <Card
+                          hoverable
+                          cover={
+                            <div style={{ height: 150, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <img 
+                                alt="图片" 
+                                src={item.url} 
+                                style={{ width: '100%', objectFit: 'cover' }}
+                                onError={(e) => {
+                                  e.target.src = 'https://via.placeholder.com/200x150?text=加载失败';
+                                  e.target.onerror = null;
+                                }}
+                              />
+                            </div>
+                          }
+                          onClick={() => handleAddImage(item.url)}
+                        >
+                          <Card.Meta
+                            description={
+                              <div>
+                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                  {item.source}
+                                </div>
+                                <Button type="primary" size="small" block>
+                                  选择此图片
+                                </Button>
+                              </div>
+                            }
+                          />
+                        </Card>
+                      </List.Item>
+                    )}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <Empty description="没有可用的图片" />
           )}
         </div>
       </Modal>
