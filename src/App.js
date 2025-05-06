@@ -1408,22 +1408,10 @@ function App() {
               <Button
                 type="primary"
                 size="large"
-                onClick={handleGenerate}
-                loading={loading}
-                className="glow-button"
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
-              >
-                autoGML模式
-              </Button>
-              <Button
-                type="primary"
-                size="large"
                 onClick={handleCrawl}
                 loading={crawlLoading}
                 className="glow-button"
                 style={{ 
-                  marginLeft: '16px',
                   backgroundColor: '#ff4d4f',
                   borderColor: '#ff4d4f'
                 }}
