@@ -24,7 +24,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [isHistoryModalVisible, setIsHistoryModalVisible] = useState(false);
   const [historyFilter, setHistoryFilter] = useState({ school: '', style: '' });
-  const [reportTitle, setReportTitle] = useState('autoGML报告展示');
+  const [reportTitle, setReportTitle] = useState('');
   // 推送小程序相关状态
   const [isPushModalVisible, setIsPushModalVisible] = useState(false);
   const [currentPushContent, setCurrentPushContent] = useState(null);
@@ -46,6 +46,14 @@ function App() {
   // 添加图片选择相关状态
   const [isImageSelectorVisible, setIsImageSelectorVisible] = useState(false);
   const [availableImages, setAvailableImages] = useState([]);
+  
+  // 工作区状态
+  const [originalText, setOriginalText] = useState('');
+  const [promptText, setPromptText] = useState('');
+  const [generatedText, setGeneratedText] = useState('');  // 新增生成结果状态
+  const [titleText, setTitleText] = useState('');
+  const [contentText, setContentText] = useState('');
+  const [workspaceImages, setWorkspaceImages] = useState([]); // 新增工作区图片列表
   
   // 预设学校列表
   const schoolOptions = [
@@ -425,7 +433,7 @@ function App() {
             
             message.success('爬虫数据获取成功');
             
-            // 添加复制到生成结果区的全局函数
+            // 添加复制到生成结果区的全局函数 (虽然左移按钮已移除，但保留此函数以防止引用错误)
             window.copyToResults = (index) => {
               // 如果存在排序后的索引映射，使用它来获取正确的索引
               const originalIndex = window.sortedIndexMap ? window.sortedIndexMap[index] : index;
@@ -455,6 +463,107 @@ function App() {
                 setContents(prev => [content, ...prev]);
                 message.success('已添加到生成结果区');
               } else {
+                message.error('找不到爬取内容');
+              }
+            };
+            
+            // 新增复制到工作区的函数
+            window.copyToWorkspace = (index) => {
+              // 如果存在排序后的索引映射，使用它来获取正确的索引
+              const originalIndex = window.sortedIndexMap ? window.sortedIndexMap[index] : index;
+              
+              // 如果爬取结果存在
+              if (crawlResults && crawlResults[originalIndex]) {
+                // 获取原始爬取结果数据
+                const item = crawlResults[originalIndex];
+                console.log('爬取结果项:', item);
+                
+                // 获取原始文案内容
+                let content = window.crawledContents && window.crawledContents[originalIndex] ? 
+                              window.crawledContents[originalIndex] : '';
+                
+                // 处理文案格式
+                try {
+                  // 提取标题
+                  const titleMatch = content.match(/^🏫[\s\S]*?小红书文案[\s\S]*?-\s*(.*?)(?=\n\n|$)/);
+                  let title = titleMatch ? titleMatch[1].trim() : '';
+                  
+                  // 提取内容
+                  content = content.replace(/^🏫[\s\S]*?小红书文案[\s\S]*?-\s*.*?\n\n/g, '');
+                  
+                  // 去掉原文链接和发布时间
+                  content = content.replace(/\n\n原文链接:[\s\S]*?(?=\n\n|$)/g, '');
+                  content = content.replace(/\n\n发布时间:[\s\S]*?(?=\n\n|$)/g, '');
+                  
+                  // 清理可能残留的多余换行
+                  content = content.replace(/\n{3,}/g, '\n\n');
+                  content = content.trim();
+                  
+                  // 将标题和内容合并设置到原文文本框
+                  const combinedText = title ? `${title}\n\n${content}` : content;
+                  setOriginalText(combinedText);
+                  // 将标题设置到标题文本框
+                  setTitleText(title || '');
+                  // 将内容设置到内容文本框
+                  setContentText(content || '');
+                  
+                  // 添加图片到工作区图片列表
+                  if (item.image_list) {
+                    let imageUrls = item.image_list;
+                    console.log('原始图片数据:', imageUrls);
+                    
+                    // 如果image_list是字符串，尝试解析为数组
+                    if (typeof imageUrls === 'string') {
+                      try {
+                        imageUrls = JSON.parse(imageUrls);
+                        console.log('解析后的图片URL数组:', imageUrls);
+                      } catch (e) {
+                        console.error('解析图片列表失败:', e);
+                        imageUrls = [];
+                      }
+                    }
+                    
+                    // 确保imageUrls是数组
+                    if (!Array.isArray(imageUrls)) {
+                      console.warn('图片列表不是数组，尝试转换');
+                      // 尝试转换为数组
+                      if (imageUrls && typeof imageUrls === 'object') {
+                        // 如果是对象，尝试提取其值作为数组
+                        imageUrls = Object.values(imageUrls);
+                      } else if (imageUrls && typeof imageUrls === 'string') {
+                        // 如果是单个URL字符串
+                        imageUrls = [imageUrls];
+                      } else {
+                        imageUrls = [];
+                      }
+                      console.log('转换后的图片URL数组:', imageUrls);
+                    }
+                    
+                    // 过滤掉无效的URL
+                    imageUrls = imageUrls.filter(url => url && typeof url === 'string' && url.trim() !== '');
+                    
+                    console.log('最终处理的图片URL数组:', imageUrls);
+                    
+                    // 如果是数组，则添加到工作区图片列表
+                    if (imageUrls.length > 0) {
+                      // 重置工作区图片列表，只保留当前内容相关的图片
+                      setWorkspaceImages(imageUrls);
+                      message.success(`已添加 ${imageUrls.length} 张图片到工作区`);
+                    } else {
+                      console.warn('没有有效的图片URL可添加');
+                      message.info('此内容没有可用图片');
+                    }
+                  } else {
+                    console.log('此项没有图片列表属性');
+                    message.info('此内容没有附带图片');
+                  }
+                } catch (e) {
+                  console.error('处理文案格式时出错:', e);
+                }
+                
+                message.success('已复制到工作区');
+              } else {
+                console.error('找不到爬取内容:', { index, originalIndex, crawlResults });
                 message.error('找不到爬取内容');
               }
             };
@@ -507,7 +616,7 @@ function App() {
       });
     }
     
-    // 保存排序后的数据索引映射，用于"左移"按钮
+    // 保存排序后的数据索引映射，用于数据索引转换
     window.sortedIndexMap = sortedData.map(item => {
       // 找到原始数据中这个item的索引
       return data.findIndex(original => original === item);
@@ -517,6 +626,77 @@ function App() {
     window.openLightbox = (imageUrl) => {
       setLightboxImage(imageUrl);
       setLightboxVisible(true);
+    };
+
+    // 添加新的工作区图片函数
+    window.addImageToWorkspace = (imageUrl) => {
+      if (imageUrl && typeof imageUrl === 'string' && imageUrl.trim() !== '') {
+        if (!workspaceImages.includes(imageUrl)) {
+          setWorkspaceImages(prev => [...prev, imageUrl]);
+          message.success('已添加图片到工作区');
+        } else {
+          message.info('此图片已在工作区中');
+        }
+      }
+    };
+    
+    // 添加所有图片到工作区函数
+    window.copyAllImagesToWorkspace = (index) => {
+      // 如果存在排序后的索引映射，使用它来获取正确的索引
+      const originalIndex = window.sortedIndexMap ? window.sortedIndexMap[index] : index;
+      
+      // 如果爬取结果存在
+      if (data && data[originalIndex] && data[originalIndex].image_list) {
+        let imageUrls = data[originalIndex].image_list;
+        console.log('尝试添加所有图片，原始数据:', imageUrls);
+        
+        // 如果image_list是字符串，尝试解析为数组
+        if (typeof imageUrls === 'string') {
+          try {
+            imageUrls = JSON.parse(imageUrls);
+            console.log('解析后的图片URL:', imageUrls);
+          } catch (e) {
+            console.error('解析图片列表失败:', e);
+            imageUrls = [];
+          }
+        }
+        
+        // 确保imageUrls是数组
+        if (!Array.isArray(imageUrls)) {
+          console.warn('图片列表不是数组，尝试转换');
+          // 尝试转换为数组
+          if (imageUrls && typeof imageUrls === 'object') {
+            // 如果是对象，尝试提取其值作为数组
+            imageUrls = Object.values(imageUrls);
+          } else if (imageUrls && typeof imageUrls === 'string') {
+            // 如果是单个URL字符串
+            imageUrls = [imageUrls];
+          } else {
+            imageUrls = [];
+          }
+        }
+        
+        // 过滤掉无效的URL
+        imageUrls = imageUrls.filter(url => url && typeof url === 'string' && url.trim() !== '');
+        
+        if (imageUrls.length > 0) {
+          // 将所有图片添加到工作区
+          setWorkspaceImages(prev => {
+            // 过滤掉已存在的图片URL
+            const newUrls = imageUrls.filter(url => !prev.includes(url));
+            if (newUrls.length === 0) {
+              message.info('所有图片已在工作区中');
+              return prev;
+            }
+            message.success(`已添加 ${newUrls.length} 张图片到工作区`);
+            return [...prev, ...newUrls];
+          });
+        } else {
+          message.info('没有可用的图片');
+        }
+      } else {
+        message.info('此内容没有图片');
+      }
     };
     
     // 遍历排序后的数据生成卡片HTML
@@ -546,15 +726,54 @@ function App() {
           }
         }
         
+        // 确保imageUrls是数组
+        if (!Array.isArray(imageUrls)) {
+          // 尝试转换为数组
+          if (imageUrls && typeof imageUrls === 'object') {
+            // 如果是对象，尝试提取其值作为数组
+            imageUrls = Object.values(imageUrls);
+          } else if (imageUrls && typeof imageUrls === 'string') {
+            // 如果是单个URL字符串
+            imageUrls = [imageUrls];
+          } else {
+            imageUrls = [];
+          }
+        }
+        
+        // 过滤掉无效的URL
+        imageUrls = imageUrls.filter(url => url && typeof url === 'string' && url.trim() !== '');
+        
         // 只有当图片列表非空时才显示图片区域
-        if (Array.isArray(imageUrls) && imageUrls.length > 0) {
+        if (imageUrls.length > 0) {
           imagesHTML = `
 <div style="margin-top: 15px; margin-bottom: 15px;">
-  <div style="font-weight: bold; margin-bottom: 10px;">图片列表:</div>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <div style="font-weight: bold;">图片列表:</div>
+    <button 
+      onclick="window.copyAllImagesToWorkspace(${index})" 
+      style="background-color: #1890ff; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px;"
+      data-index="${index}"
+    >
+      添加全部图片到工作区
+    </button>
+  </div>
   <div style="display: flex; flex-wrap: wrap; gap: 10px;">
     ${imageUrls.map((url, imgIndex) => `
-      <div style="width: 200px; height: 200px; overflow: hidden; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); cursor: pointer;" onclick="window.openLightbox('${url}')">
-        <img src="${url}" alt="小红书图片" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='https://via.placeholder.com/200x200?text=加载失败'; this.onerror=null;" />
+      <div style="position: relative; width: 200px; height: 200px; overflow: hidden; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); cursor: pointer;">
+        <img 
+          src="${url}" 
+          alt="小红书图片" 
+          style="width: 100%; height: 100%; object-fit: cover;" 
+          onclick="window.openLightbox('${url}')" 
+          onerror="this.src='https://via.placeholder.com/200x200?text=加载失败'; this.onerror=null;"
+        />
+        <button 
+          onclick="window.addImageToWorkspace('${url}')" 
+          style="position: absolute; top: 5px; right: 5px; background-color: rgba(0,0,0,0.5); color: white; border: none; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px; cursor: pointer;"
+          title="添加到工作区"
+        >
+          +
+        </button>
       </div>
     `).join('')}
   </div>
@@ -562,16 +781,17 @@ function App() {
         }
       }
       
-      // 创建卡片式HTML，加入"复制到生成结果区"按钮
+      // 创建卡片式HTML，使用data-index属性存储索引，方便在copyToWorkspace中获取
       return `
 <div style="margin-bottom: 20px; border: 1px solid #e8e8e8; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
   <div style="display: flex; align-items: center; border-bottom: 1px solid #eaeaea; padding-bottom: 10px; margin-bottom: 15px;">
     <button 
-      onclick="window.copyToResults(${index})" 
-      style="margin-right: 10px; background-color: #1890ff; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center;"
+      onclick="window.copyToWorkspace(${index})" 
+      style="margin-right: 10px; background-color: #722ED1; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center;"
+      data-index="${index}"
     >
-      <span style="transform: rotate(180deg); display: inline-block; margin-right: 5px;">➔</span>
-      左移
+      <span style="display: inline-block; margin-right: 5px;">📝</span>
+      工作区
     </button>
     <h3 style="margin: 0; color: #333;">${title}</h3>
   </div>
@@ -615,7 +835,7 @@ function App() {
       });
     }
     
-    // 保存排序后的数据索引映射，用于"左移"按钮
+    // 保存排序后的数据索引映射，用于数据索引转换
     window.sortedIndexMap = sortedData.map(item => {
       // 找到原始数据中这个item的索引
       return data.findIndex(original => original === item);
@@ -625,6 +845,77 @@ function App() {
     window.openLightbox = (imageUrl) => {
       setLightboxImage(imageUrl);
       setLightboxVisible(true);
+    };
+    
+    // 添加新的工作区图片函数
+    window.addImageToWorkspace = (imageUrl) => {
+      if (imageUrl && typeof imageUrl === 'string' && imageUrl.trim() !== '') {
+        if (!workspaceImages.includes(imageUrl)) {
+          setWorkspaceImages(prev => [...prev, imageUrl]);
+          message.success('已添加图片到工作区');
+        } else {
+          message.info('此图片已在工作区中');
+        }
+      }
+    };
+    
+    // 添加所有图片到工作区函数
+    window.copyAllImagesToWorkspace = (index) => {
+      // 如果存在排序后的索引映射，使用它来获取正确的索引
+      const originalIndex = window.sortedIndexMap ? window.sortedIndexMap[index] : index;
+      
+      // 如果爬取结果存在
+      if (data && data[originalIndex] && data[originalIndex].image_list) {
+        let imageUrls = data[originalIndex].image_list;
+        console.log('尝试添加所有图片，原始数据:', imageUrls);
+        
+        // 如果image_list是字符串，尝试解析为数组
+        if (typeof imageUrls === 'string') {
+          try {
+            imageUrls = JSON.parse(imageUrls);
+            console.log('解析后的图片URL:', imageUrls);
+          } catch (e) {
+            console.error('解析图片列表失败:', e);
+            imageUrls = [];
+          }
+        }
+        
+        // 确保imageUrls是数组
+        if (!Array.isArray(imageUrls)) {
+          console.warn('图片列表不是数组，尝试转换');
+          // 尝试转换为数组
+          if (imageUrls && typeof imageUrls === 'object') {
+            // 如果是对象，尝试提取其值作为数组
+            imageUrls = Object.values(imageUrls);
+          } else if (imageUrls && typeof imageUrls === 'string') {
+            // 如果是单个URL字符串
+            imageUrls = [imageUrls];
+          } else {
+            imageUrls = [];
+          }
+        }
+        
+        // 过滤掉无效的URL
+        imageUrls = imageUrls.filter(url => url && typeof url === 'string' && url.trim() !== '');
+        
+        if (imageUrls.length > 0) {
+          // 将所有图片添加到工作区
+          setWorkspaceImages(prev => {
+            // 过滤掉已存在的图片URL
+            const newUrls = imageUrls.filter(url => !prev.includes(url));
+            if (newUrls.length === 0) {
+              message.info('所有图片已在工作区中');
+              return prev;
+            }
+            message.success(`已添加 ${newUrls.length} 张图片到工作区`);
+            return [...prev, ...newUrls];
+          });
+        } else {
+          message.info('没有可用的图片');
+        }
+      } else {
+        message.info('此内容没有图片');
+      }
     };
     
     // 遍历排序后的数据生成卡片HTML
@@ -670,16 +961,17 @@ function App() {
         }
       }
       
-      // 创建卡片式HTML，加入"复制到生成结果区"按钮
+      // 创建卡片式HTML，使用data-index属性存储索引，方便在copyToWorkspace中获取
       return `
 <div style="margin-bottom: 20px; border: 1px solid #e8e8e8; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
   <div style="display: flex; align-items: center; border-bottom: 1px solid #eaeaea; padding-bottom: 10px; margin-bottom: 15px;">
     <button 
-      onclick="window.copyToResults(${index})" 
-      style="margin-right: 10px; background-color: #1890ff; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center;"
+      onclick="window.copyToWorkspace(${index})" 
+      style="margin-right: 10px; background-color: #722ED1; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center;"
+      data-index="${index}"
     >
-      <span style="transform: rotate(180deg); display: inline-block; margin-right: 5px;">➔</span>
-      左移
+      <span style="display: inline-block; margin-right: 5px;">📝</span>
+      工作区
     </button>
     <h3 style="margin: 0; color: #333;">${title}</h3>
   </div>
@@ -1137,6 +1429,9 @@ function App() {
               </div>
             ),
           });
+          
+          // 保留工作区内容，特别是图片列表
+          // 不清空workspaceImages，允许用户继续处理这些图片
         } else {
           const errorMessage = result.msg || result.message || `Coze API 错误 (code: ${result.code})`;
           message.error(`推送失败: ${errorMessage}`);
@@ -1285,6 +1580,11 @@ function App() {
       newContents[index] = aiModifyResult;
       setContents(newContents);
       message.success('文案已应用并关闭！');
+    } else if (aiModifyResult) {
+      // 如果不是来自内容列表，可能是来自工作区
+      if (aiModifyOriginalContent === originalText) {
+        applyAiResultToWorkspace();
+      }
     }
     
     // 关闭弹窗
@@ -1307,9 +1607,313 @@ function App() {
       pushForm.setFieldsValue({
         images_list: [...currentImages, imageUrl]
       });
+      
+      // 同时添加到工作区图片列表
+      if (!workspaceImages.includes(imageUrl)) {
+        handleAddWorkspaceImage(imageUrl);
+      }
     }
     // 关闭图片选择器
     setIsImageSelectorVisible(false);
+  };
+
+  // 工作区相关函数
+  const handleOriginalTextChange = (e) => {
+    setOriginalText(e.target.value);
+  };
+
+  const handlePromptTextChange = (e) => {
+    setPromptText(e.target.value);
+  };
+
+  const handleTitleTextChange = (e) => {
+    setTitleText(e.target.value);
+  };
+
+  const handleContentTextChange = (e) => {
+    setContentText(e.target.value);
+  };
+
+  const handleWorkspaceAiModify = async () => {
+    if (!originalText.trim()) {
+      message.warning('请先输入原文内容');
+      return;
+    }
+
+    // 使用提示词作为AI指令，如果没有则使用默认提示词
+    let prompt = promptText.trim();
+    if (!prompt) {
+      prompt = '请改写以下文案，使其更加吸引人，符合小红书平台风格';
+    }
+    
+    // 显示加载中提示
+    message.loading('AI正在改写文案...', 0);
+    
+    try {
+      console.log('开始调用AI修改API...');
+      console.log('请求参数:', {
+        parameters: {
+          tiezi: originalText,
+          prompt: prompt
+        },
+        workflow_id: '7499034843725135923'
+      });
+      
+      // 直接调用 Coze API
+      const response = await fetch('https://api.coze.cn/v1/workflow/run', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer pat_wBxRH66eSNFjZPp5A9WNMIJg5Ux8JJffhgjkArPPpj2DDdemVvQuVDQbIs47HaGY',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          parameters: {
+            tiezi: originalText,
+            prompt: prompt
+          },
+          workflow_id: '7499034843725135923'
+        })
+      });
+
+      // 关闭加载提示
+      message.destroy();
+      
+      console.log('AI修改API响应状态:', response.status);
+      const result = await response.json();
+      console.log('AI修改API响应数据:', result);
+      
+      // 处理 API 响应
+      if (result.code === 0 && result.data) {
+        try {
+          // 检查result.data是否为字符串，如果是则解析JSON
+          let parsedData;
+          if (typeof result.data === 'string') {
+            parsedData = JSON.parse(result.data);
+            console.log('解析后的JSON数据:', parsedData);
+          } else {
+            parsedData = result.data;
+          }
+          
+          // 直接使用解析后的数据中的output字段
+          if (parsedData && parsedData.output) {
+            // 将结果直接设置到生成结果文本框
+            setGeneratedText(parsedData.output);
+            message.success('AI改写完成');
+          } else {
+            console.warn('API返回数据中没有output字段:', parsedData);
+            message.warning('未能获取到改写结果，请重试');
+          }
+        } catch (error) {
+          console.error('解析API返回数据失败:', error, result.data);
+          message.error('解析API返回数据失败，请重试');
+        }
+      } else {
+        console.warn('API调用失败:', result);
+        message.warning('未能获取到改写结果，请重试');
+      }
+    } catch (error) {
+      // 关闭加载提示
+      message.destroy();
+      
+      console.error('API调用错误:', error);
+      message.error('修改失败，请稍后重试');
+    }
+  };
+
+  const handleWorkspacePush = async () => {
+    // 如果标题或内容为空，显示提示
+    if (!titleText.trim()) {
+      message.warning('标题不能为空，请输入标题');
+      return;
+    }
+    if (!contentText.trim()) {
+      message.warning('内容不能为空，请输入内容');
+      return;
+    }
+    
+    // 清理标题（移除表情符号和特殊字符）
+    const cleanTitle = titleText.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\w\s\u4e00-\u9fa5]/g, '').trim();
+    
+    try {
+      // 显示加载中状态
+      message.loading('正在推送...', 0);
+      setPushLoading(true);
+      
+      // 构建符合 Coze API 要求的数据结构
+      const cozeRequestData = {
+        parameters: {
+          title: cleanTitle || "小红书文案",
+          body: contentText,
+          images_list: workspaceImages, // 使用工作区图片列表
+          school_id: 60, // 默认学校ID
+          tag_id: 13 // 默认标签ID
+        },
+        workflow_id: "7498187555692920884"
+      };
+
+      console.log('推送 Coze API 数据:', JSON.stringify(cozeRequestData));
+
+      // API地址
+      const apiUrl = 'https://api.coze.cn/v1/workflow/run';
+      console.log('使用 Coze API 地址:', apiUrl);
+
+      // 设置请求超时
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒超时
+
+      // 发送 Coze API 推送请求
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        signal: controller.signal, // 添加超时控制
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          // 添加 Coze API 的 Authorization 头
+          'Authorization': 'Bearer pat_wBxRH66eSNFjZPp5A9WNMIJg5Ux8JJffhgjkArPPpj2DDdemVvQuVDQbIs47HaGY'
+        },
+        body: JSON.stringify(cozeRequestData)
+      });
+
+      clearTimeout(timeoutId); // 清除超时定时器
+      // 关闭加载提示
+      message.destroy();
+
+      console.log('Coze API 推送响应状态:', response.status);
+      const result = await response.json();
+      console.log('Coze API 推送响应内容:', result);
+
+      // 处理 Coze API 的响应
+      if (result.code === 0) {
+        message.success('推送成功');
+
+        // 显示成功信息
+        Modal.info({
+          title: '推送成功',
+          content: (
+            <div>
+              <p>文案已成功通过 Coze API 推送。</p>
+              {result.data && <p>API 返回信息: {JSON.stringify(result.data)}</p>}
+              <p>请检查目标系统确认是否已接收。</p>
+            </div>
+          ),
+        });
+      } else {
+        const errorMessage = result.msg || result.message || `Coze API 错误 (code: ${result.code})`;
+        message.error(`推送失败: ${errorMessage}`);
+
+        // 显示详细错误信息
+        Modal.error({
+          title: '推送失败',
+          content: (
+            <div>
+              <p>错误信息: {errorMessage}</p>
+              <p>状态码: {response.status}</p>
+              <p>API Code: {result.code}</p>
+              <p>请检查请求参数和网络连接。</p>
+            </div>
+          ),
+        });
+      }
+    } catch (error) {
+      // 关闭加载提示
+      message.destroy();
+      
+      console.error('推送错误:', error);
+      
+      if (error.name === 'AbortError') {
+        message.error('请求超时，API服务器没有响应');
+      } else {
+        message.error(`推送失败: ${error.message || '网络错误'}`);
+      }
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const clearWorkspace = () => {
+    Modal.confirm({
+      title: '确认清空',
+      content: '确定要清空工作区所有内容吗？',
+      onOk: () => {
+        setOriginalText('');
+        setPromptText('');
+        setGeneratedText('');  // 清除生成结果
+        setTitleText('');
+        setContentText('');
+        setWorkspaceImages([]); // 清空图片列表
+        message.success('工作区已清空');
+      }
+    });
+  };
+
+  const applyAiResultToWorkspace = () => {
+    if (aiModifyResult) {
+      // 尝试提取标题和内容
+      try {
+        // 尝试检测是否有"【标题】"或类似标记
+        const titleMatch = aiModifyResult.match(/(?:【|#|「|『|\[)?\s*(?:标题|title)\s*(?:】|#|」|』|\])?\s*[：:]\s*(.*?)(?:\n|$)/i);
+        const contentMatch = aiModifyResult.match(/(?:【|#|「|『|\[)?\s*(?:内容|正文|content)\s*(?:】|#|」|』|\])?\s*[：:]\s*([\s\S]*)/i);
+        
+        // 设置生成结果
+        setGeneratedText(aiModifyResult);
+        
+        // 如果找到标题，则设置标题
+        if (titleMatch && titleMatch[1]) {
+          setTitleText(titleMatch[1].trim());
+        }
+        
+        // 如果找到内容，则设置内容
+        if (contentMatch && contentMatch[1]) {
+          setContentText(contentMatch[1].trim());
+        } else if (!contentMatch) {
+          // 如果没有明确的内容标记，但有标题标记，则剩余部分作为内容
+          if (titleMatch) {
+            const remainingContent = aiModifyResult.replace(titleMatch[0], '').trim();
+            if (remainingContent) {
+              setContentText(remainingContent);
+            }
+          } else {
+            // 如果既没有标题也没有内容标记，则整个文本作为内容
+            setContentText(aiModifyResult);
+          }
+        }
+        
+        message.success('已应用到工作区');
+      } catch (error) {
+        console.error('解析AI结果出错:', error);
+        // 如果解析失败，直接设置为内容
+        setGeneratedText(aiModifyResult);
+        setContentText(aiModifyResult);
+        message.success('已应用到工作区 (没有检测到标题)');
+      }
+    } else {
+      message.warning('没有可应用的AI生成结果');
+    }
+  };
+
+  // 设置爬取内容到工作区
+  const setToWorkspace = (title, content) => {
+    // 将标题和内容合并设置到原文文本框
+    const combinedText = title ? `${title}\n\n${content}` : content;
+    setOriginalText(combinedText);
+    // 清空标题文本框
+    setTitleText('');
+    message.success('已设置到工作区');
+  };
+
+  // 处理生成结果文本变化
+  const handleGeneratedTextChange = (e) => {
+    setGeneratedText(e.target.value);
+  };
+
+  // 添加工作区图片
+  const handleAddWorkspaceImage = (imageUrl) => {
+    setWorkspaceImages(prevImages => [...prevImages, imageUrl]);
+  };
+
+  // 移除工作区图片
+  const handleRemoveWorkspaceImage = (index) => {
+    setWorkspaceImages(prevImages => prevImages.filter((_, i) => i !== index));
   };
 
   return (
@@ -1425,122 +2029,152 @@ function App() {
           
           <div className="content-display">
             <div className="left-section">
-              <Card className="content-card" style={{ height: '100%' }}>
-                <div className="content-header">
-                  <Title level={4} style={{ margin: 0 }}>生成结果</Title>
-                  {contents.length > 0 && (
-                    <Space>
-                      <Button
-                        type="primary"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={handleClearAll}
-                        className="clear-all-button"
-                      >
-                        清除全部
-                      </Button>
-                      <Button
-                        type="primary"
-                        icon={<CopyOutlined />}
-                        onClick={handleCopyAll}
-                        className="copy-all-button"
-                      >
-                        复制全部
-                      </Button>
-                    </Space>
-                  )}
+              <Card className="workspace-card">
+                <div className="content-header" style={{ display: 'flex', alignItems: 'center' }}>
+                  <Title level={4} style={{ margin: 0 }}>工作区</Title>
+                  <Space>
+                    <Button
+                      type="primary"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={clearWorkspace}
+                    >
+                      清空
+                    </Button>
+                  </Space>
                 </div>
                 <Divider />
-                {contents.length > 0 ? (
-                  <div className="content-text-container">
-                    {contents.map((item, index) => (
-                      <div key={index} className="content-text-item">
-                        <div className="content-text-header">
-                          <Text strong>文案 {index + 1}</Text>
-                          <Space>
-                            {editingIndex === index ? (
-                              <>
-                                <Button
-                                  type="primary"
-                                  icon={<SaveOutlined />}
-                                  onClick={() => handleSaveEdit(index)}
-                                  className="action-button"
-                                >
-                                  保存
-                                </Button>
-                                <Button
-                                  type="text"
-                                  icon={<CloseOutlined />}
-                                  onClick={handleCancelEdit}
-                                  className="action-button"
-                                >
-                                  取消
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                <Button
-                                  type="text"
-                                  icon={<EditOutlined />}
-                                  onClick={() => handleEdit(index, item)}
-                                  className="action-button"
-                                >
-                                  编辑
-                                </Button>
-                                <Button
-                                  type="text"
-                                  icon={<CopyOutlined />}
-                                  onClick={() => handleCopy(item)}
-                                  className="action-button"
-                                >
-                                  复制
-                                </Button>
-                                <Button
-                                  type="primary"
-                                  icon={<SendOutlined />}
-                                  onClick={() => handlePush(item)}
-                                  className="action-button"
-                                >
-                                  推送到小程序
-                                </Button>
-                                <Button
-                                  type="primary"
-                                  icon={<RobotOutlined />}
-                                  onClick={() => handleAiModify(item)}
-                                  className="action-button"
-                                  style={{ backgroundColor: '#722ED1', borderColor: '#722ED1' }}
-                                  loading={aiLoading}
-                                >
-                                  AI生成
-                                </Button>
-                              </>
-                            )}
-                          </Space>
-                        </div>
-                        {editingIndex === index ? (
-                          <Input.TextArea
-                            value={editingContent}
-                            onChange={(e) => setEditingContent(e.target.value)}
-                            autoSize={{ minRows: 3, maxRows: 6 }}
-                            className="edit-textarea"
+                <div className="workspace-section">
+                  <div className="workspace-section-title">原文:</div>
+                  <Input.TextArea
+                    className="workspace-textarea workspace-textarea-original"
+                    value={originalText}
+                    onChange={handleOriginalTextChange}
+                    autoSize={{ minRows: 3, maxRows: 6 }}
+                    placeholder="请输入或粘贴原始文案内容"
+                  />
+                </div>
+                <div className="workspace-section">
+                  <div className="workspace-section-title">提示词:</div>
+                  <Input.TextArea
+                    className="workspace-textarea workspace-textarea-prompt"
+                    value={promptText}
+                    onChange={handlePromptTextChange}
+                    autoSize={{ minRows: 2, maxRows: 4 }}
+                    placeholder="输入提示词引导AI创作（例如：'简短生动'、'增加情感'等）"
+                  />
+                </div>
+                <div className="workspace-section">
+                  <div className="workspace-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>生成结果:</span>
+                    <div>
+                      <Button
+                        type="primary"
+                        size="small"
+                        icon={<RobotOutlined />}
+                        onClick={handleWorkspaceAiModify}
+                        style={{ backgroundColor: '#722ED1', borderColor: '#722ED1', marginRight: '8px' }}
+                      >
+                        AI改写
+                      </Button>
+                      {generatedText && (
+                        <Button
+                          size="small" 
+                          type="text"
+                          icon={<CopyOutlined />}
+                          onClick={() => {
+                            navigator.clipboard.writeText(generatedText);
+                            message.success('已复制生成结果');
+                          }}
+                        >
+                          复制
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <Input.TextArea
+                    className="workspace-textarea workspace-textarea-generated"
+                    value={generatedText}
+                    onChange={handleGeneratedTextChange}
+                    autoSize={{ minRows: 8, maxRows: 20 }}
+                    style={{ height: '350px', fontSize: '14px' }}
+                    placeholder="AI生成的完整结果将显示在这里"
+                  />
+                </div>
+                <div className="workspace-section">
+                  <div className="workspace-section-title">标题:</div>
+                  <Input.TextArea
+                    className="workspace-textarea workspace-textarea-title"
+                    value={titleText}
+                    onChange={handleTitleTextChange}
+                    autoSize={{ minRows: 1, maxRows: 2 }}
+                    placeholder="请输入文案标题"
+                  />
+                </div>
+                <div className="workspace-section">
+                  <div className="workspace-section-title">内容:</div>
+                  <Input.TextArea
+                    className="workspace-textarea workspace-textarea-content"
+                    value={contentText}
+                    onChange={handleContentTextChange}
+                    autoSize={{ minRows: 5, maxRows: 10 }}
+                    placeholder="请输入文案内容"
+                  />
+                </div>
+                {/* 添加图片列表部分 */}
+                <div className="workspace-section">
+                  <div className="workspace-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>图片列表:</span>
+                    <Button 
+                      size="small" 
+                      type="primary" 
+                      icon={<SearchOutlined />}
+                      onClick={() => setIsImageSelectorVisible(true)}
+                    >
+                      添加图片
+                    </Button>
+                  </div>
+                  {workspaceImages.length > 0 ? (
+                    <div className="workspace-images-container">
+                      {workspaceImages.map((imageUrl, index) => (
+                        <div key={index} className="workspace-image-item">
+                          <img
+                            src={imageUrl}
+                            alt={`图片 ${index + 1}`}
+                            onClick={() => handleImageClick(imageUrl)}
+                            onError={(e) => {
+                              e.target.src = 'https://via.placeholder.com/80x80?text=图片加载失败';
+                              e.target.onerror = null;
+                            }}
                           />
-                        ) : (
-                          <div 
-                            className="content-text"
-                            style={{ whiteSpace: 'pre-wrap' }}
-                          >
-                            {item}
-                          </div>
-                        )}
-                        {index < contents.length - 1 && <Divider />}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-content">
-                    <Text type="secondary">请输入学校名称并点击生成按钮</Text>
-                  </div>
-                )}
+                          <Button
+                            type="primary"
+                            size="small"
+                            danger
+                            icon={<CloseOutlined />}
+                            className="workspace-image-delete"
+                            onClick={() => handleRemoveWorkspaceImage(index)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Empty 
+                      description="暂无图片" 
+                      image={Empty.PRESENTED_IMAGE_SIMPLE} 
+                      style={{ marginTop: '8px', padding: '8px' }}
+                    />
+                  )}
+                </div>
+                <div className="workspace-actions">
+                  <Button
+                    type="primary"
+                    icon={<SendOutlined />}
+                    onClick={handleWorkspacePush}
+                  >
+                    推送到小程序
+                  </Button>
+                </div>
               </Card>
             </div>
             
@@ -1749,176 +2383,6 @@ function App() {
         )}
       </Modal>
       
-      {/* 推送到小程序弹窗 */}
-      <Modal
-        title="推送到小程序"
-        open={isPushModalVisible}
-        onCancel={() => setIsPushModalVisible(false)}
-        footer={[
-          <Button key="cancel" onClick={() => setIsPushModalVisible(false)}>
-            取消
-          </Button>,
-          <Button key="submit" type="primary" loading={pushLoading} onClick={handlePushSubmit}>
-            确认推送
-          </Button>
-        ]}
-        width={600}
-      >
-        <Form
-          form={pushForm}
-          layout="vertical"
-        >
-          <Form.Item
-            name="title"
-            label="标题"
-            rules={[{ required: true, message: '请输入标题' }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="body"
-            label="内容"
-            rules={[{ required: true, message: '请输入内容' }]}
-          >
-            <Input.TextArea rows={6} />
-          </Form.Item>
-          <Form.Item
-            name="images_list"
-            label="图片列表 (可选)"
-            extra={
-              <div>
-                <div>请输入图片URL，每个URL将作为一张图片。可以添加多个URL。</div>
-                <Button 
-                  type="primary" 
-                  icon={<SearchOutlined />} 
-                  size="small" 
-                  style={{ marginTop: '8px' }}
-                  onClick={() => setIsImageSelectorVisible(true)}
-                >
-                  从图片库选择
-                </Button>
-              </div>
-            }
-          >
-            <Select 
-              mode="tags" 
-              placeholder="输入图片URL后按回车键添加"
-              style={{ width: '100%' }}
-              tokenSeparators={[',']}
-              dropdownRender={menu => (
-                <div>
-                  {menu}
-                  <Divider style={{ margin: '4px 0' }} />
-                  <div style={{ padding: '8px', textAlign: 'center' }}>
-                    <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
-                      支持格式: ["https://example.com/image.jpg"]
-                    </Typography.Text>
-                  </div>
-                </div>
-              )}
-            >
-              {/* 如果有预设的图片URL，这里可以显示为选项 */}
-            </Select>
-          </Form.Item>
-          <Form.Item
-            name="school_id"
-            label="学校ID"
-            rules={[{ required: true, message: '请输入学校ID' }]}
-          >
-            <Input type="number" />
-          </Form.Item>
-          <Form.Item
-            name="tag_id"
-            label="标签ID"
-            rules={[{ required: true, message: '请输入标签ID' }]}
-          >
-            <Input type="number" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* AI修改弹窗 */}
-      <Modal
-        title="AI文案优化"
-        open={isAiModifyModalVisible}
-        onCancel={() => setIsAiModifyModalVisible(false)}
-        footer={[
-          <Button key="cancel" onClick={() => setIsAiModifyModalVisible(false)}>
-            取消
-          </Button>,
-          <Button 
-            key="confirm" 
-            type="primary" 
-            onClick={confirmAiModify}
-            disabled={aiLoading}
-            style={{ backgroundColor: '#1890ff', borderColor: '#1890ff' }}
-          >
-            确认优化
-          </Button>,
-          <Button 
-            key="apply" 
-            type="primary" 
-            onClick={applyAndCloseModal}
-            disabled={!aiModifyResult || aiLoading}
-            style={{ backgroundColor: '#722ED1', borderColor: '#722ED1' }}
-          >
-            应用并关闭
-          </Button>,
-        ]}
-        width={700}
-      >
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>原文：</div>
-          <Input.TextArea
-            value={editingAiModifyOriginal}
-            onChange={(e) => setEditingAiModifyOriginal(e.target.value)}
-            autoSize={{ minRows: 3, maxRows: 6 }}
-            style={{ marginBottom: '8px' }}
-          />
-        </div>
-        
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>提示词：</div>
-          <Input.TextArea
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            autoSize={{ minRows: 2, maxRows: 4 }}
-            style={{ marginBottom: '8px' }}
-          />
-        </div>
-        
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ fontWeight: 'bold' }}>优化结果：</div>
-            {!aiLoading && (
-              <Button 
-                type="text" 
-                icon={<CopyOutlined />} 
-                onClick={copyAiResult}
-                size="small"
-              >
-                复制
-              </Button>
-            )}
-          </div>
-          {aiLoading ? (
-            <div style={{ textAlign: 'center', padding: '20px' }}>
-              <div style={{ marginBottom: '10px' }}>AI正在优化中...</div>
-            </div>
-          ) : (
-            <Input.TextArea
-              value={aiModifyResult}
-              onChange={(e) => setAiModifyResult(e.target.value)}
-              autoSize={{ minRows: 6, maxRows: 15 }}
-              style={{ 
-                backgroundColor: '#f0f5ff',
-                border: '1px solid #d6e4ff',
-              }}
-            />
-          )}
-        </div>
-      </Modal>
-
       {/* 图片放大查看器 */}
       {lightboxVisible && (
         <div
