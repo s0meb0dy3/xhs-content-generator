@@ -371,6 +371,13 @@ function App() {
           if (data.outputList && data.outputList.length > 0) {
             // 存储原始数据用于排序
             setCrawlResults(data.outputList);
+            // 保存crawlResults到sessionStorage
+            try {
+              sessionStorage.setItem('crawlResults', JSON.stringify(data.outputList));
+              console.log('已保存crawlResults到sessionStorage');
+            } catch (e) {
+              console.error('保存crawlResults到sessionStorage失败:', e);
+            }
             // 重置排序类型
             setCrawlSortType('default');
             
@@ -399,6 +406,12 @@ function App() {
             
             // 记录爬取结果，但不设置到contents
             window.crawledContents = formattedResults;
+            // 保存到sessionStorage
+            try {
+              sessionStorage.setItem('crawledContents', JSON.stringify(formattedResults));
+            } catch (e) {
+              console.error('保存爬取内容到sessionStorage失败:', e);
+            }
             
             // 生成爬取文案的HTML展示
             const reportHTML = generateCrawlResultsHTML(data.outputList, school);
@@ -469,8 +482,39 @@ function App() {
             
             // 新增复制到工作区的函数
             window.copyToWorkspace = (index) => {
+              console.log('调用copyToWorkspace，索引:', index);
               // 如果存在排序后的索引映射，使用它来获取正确的索引
               const originalIndex = window.sortedIndexMap ? window.sortedIndexMap[index] : index;
+              console.log('原始索引:', originalIndex);
+              console.log('爬取结果状态:', { 
+                hasCrawlResults: !!crawlResults, 
+                crawlResultsLength: crawlResults ? crawlResults.length : 0,
+                hasCrawledContents: !!window.crawledContents,
+                crawledContentsLength: window.crawledContents ? window.crawledContents.length : 0
+              });
+              
+              // 如果爬取结果不存在，但从sessionStorage恢复
+              if ((!crawlResults || crawlResults.length === 0) && sessionStorage.getItem('crawlResults')) {
+                try {
+                  const savedResults = JSON.parse(sessionStorage.getItem('crawlResults'));
+                  if (savedResults && savedResults.length > 0) {
+                    setCrawlResults(savedResults);
+                    console.log('已从sessionStorage中恢复crawlResults');
+                  }
+                } catch (e) {
+                  console.error('从sessionStorage恢复crawlResults失败:', e);
+                }
+              }
+              
+              // 如果crawledContents不存在，尝试从sessionStorage恢复
+              if (!window.crawledContents && sessionStorage.getItem('crawledContents')) {
+                try {
+                  window.crawledContents = JSON.parse(sessionStorage.getItem('crawledContents'));
+                  console.log('已从sessionStorage中恢复crawledContents');
+                } catch (e) {
+                  console.error('从sessionStorage恢复crawledContents失败:', e);
+                }
+              }
               
               // 如果爬取结果存在
               if (crawlResults && crawlResults[originalIndex]) {
@@ -502,66 +546,11 @@ function App() {
                   // 将标题和内容合并设置到原文文本框
                   const combinedText = title ? `${title}\n\n${content}` : content;
                   setOriginalText(combinedText);
-                  // 将标题设置到标题文本框
-                  setTitleText(title || '');
-                  // 将内容设置到内容文本框
-                  setContentText(content || '');
                   
-                  // 添加图片到工作区图片列表
-                  if (item.image_list) {
-                    let imageUrls = item.image_list;
-                    console.log('原始图片数据:', imageUrls);
-                    
-                    // 如果image_list是字符串，尝试解析为数组
-                    if (typeof imageUrls === 'string') {
-                      try {
-                        imageUrls = JSON.parse(imageUrls);
-                        console.log('解析后的图片URL数组:', imageUrls);
-                      } catch (e) {
-                        console.error('解析图片列表失败:', e);
-                        imageUrls = [];
-                      }
-                    }
-                    
-                    // 确保imageUrls是数组
-                    if (!Array.isArray(imageUrls)) {
-                      console.warn('图片列表不是数组，尝试转换');
-                      // 尝试转换为数组
-                      if (imageUrls && typeof imageUrls === 'object') {
-                        // 如果是对象，尝试提取其值作为数组
-                        imageUrls = Object.values(imageUrls);
-                      } else if (imageUrls && typeof imageUrls === 'string') {
-                        // 如果是单个URL字符串
-                        imageUrls = [imageUrls];
-                      } else {
-                        imageUrls = [];
-                      }
-                      console.log('转换后的图片URL数组:', imageUrls);
-                    }
-                    
-                    // 过滤掉无效的URL
-                    imageUrls = imageUrls.filter(url => url && typeof url === 'string' && url.trim() !== '');
-                    
-                    console.log('最终处理的图片URL数组:', imageUrls);
-                    
-                    // 如果是数组，则添加到工作区图片列表
-                    if (imageUrls.length > 0) {
-                      // 重置工作区图片列表，只保留当前内容相关的图片
-                      setWorkspaceImages(imageUrls);
-                      message.success(`已添加 ${imageUrls.length} 张图片到工作区`);
-                    } else {
-                      console.warn('没有有效的图片URL可添加');
-                      message.info('此内容没有可用图片');
-                    }
-                  } else {
-                    console.log('此项没有图片列表属性');
-                    message.info('此内容没有附带图片');
-                  }
+                  message.success('已复制到工作区');
                 } catch (e) {
                   console.error('处理文案格式时出错:', e);
                 }
-                
-                message.success('已复制到工作区');
               } else {
                 console.error('找不到爬取内容:', { index, originalIndex, crawlResults });
                 message.error('找不到爬取内容');
@@ -1916,6 +1905,38 @@ function App() {
     setWorkspaceImages(prevImages => prevImages.filter((_, i) => i !== index));
   };
 
+  // 在组件加载时从sessionStorage恢复爬取结果
+  useEffect(() => {
+    try {
+      const savedCrawlResults = sessionStorage.getItem('crawlResults');
+      const savedCrawledContents = sessionStorage.getItem('crawledContents');
+      
+      if (savedCrawlResults) {
+        setCrawlResults(JSON.parse(savedCrawlResults));
+        console.log('已从sessionStorage恢复爬取结果');
+      }
+      
+      if (savedCrawledContents) {
+        window.crawledContents = JSON.parse(savedCrawledContents);
+        console.log('已从sessionStorage恢复爬取内容');
+      }
+    } catch (e) {
+      console.error('恢复爬取结果失败:', e);
+    }
+  }, []);
+  
+  // 当crawlResults发生变化时保存到sessionStorage
+  useEffect(() => {
+    if (crawlResults && crawlResults.length > 0) {
+      try {
+        sessionStorage.setItem('crawlResults', JSON.stringify(crawlResults));
+        console.log('已保存爬取结果到sessionStorage');
+      } catch (e) {
+        console.error('保存爬取结果失败:', e);
+      }
+    }
+  }, [crawlResults]);
+
   return (
     <Layout className="layout">
       <Header className="header">
@@ -1972,42 +1993,7 @@ function App() {
                   <Option key={school} value={school}>{school}</Option>
                 ))}
               </Select>
-              <Tooltip 
-                title={
-                  <div style={{ color: '#333', fontSize: '14px', lineHeight: '1.5' }}>
-                    仅支持下拉框中列出的学校，选择其他学校生成的文案可能与具体学校特色无关
-                  </div>
-                }
-                placement="top"
-                overlayStyle={{ maxWidth: '300px' }}
-                color="#fff"
-              >
-                <QuestionCircleOutlined style={{ fontSize: '16px', color: '#666', cursor: 'pointer' }} />
-              </Tooltip>
             </Space>
-            <Select
-              size="large"
-              value={style}
-              onChange={handleStyleChange}
-              style={{ width: '120px', marginLeft: '16px', marginRight: '16px' }}
-              className="style-select"
-            >
-              {styleOptions.map(option => (
-                <Option key={option.value} value={option.value}>
-                  {option.label}
-                </Option>
-              ))}
-            </Select>
-            {(style === 'custom_prompt') && (
-              <Input
-                size="large"
-                placeholder="请输入提示词（如风格、主题、长短等）"
-                value={customStyle}
-                onChange={(e) => setCustomStyle(e.target.value)}
-                style={{ width: '250px', marginRight: '16px' }}
-                className="glow-input"
-              />
-            )}
             <div>
               <Button
                 type="primary"
@@ -2125,14 +2111,6 @@ function App() {
                 <div className="workspace-section">
                   <div className="workspace-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>图片列表:</span>
-                    <Button 
-                      size="small" 
-                      type="primary" 
-                      icon={<SearchOutlined />}
-                      onClick={() => setIsImageSelectorVisible(true)}
-                    >
-                      添加图片
-                    </Button>
                   </div>
                   {workspaceImages.length > 0 ? (
                     <div className="workspace-images-container">
@@ -2182,12 +2160,7 @@ function App() {
               <Card className="right-card">
                 <div className="content-header" style={{ display: 'flex', alignItems: 'center' }}>
                   <Title level={4} style={{ margin: 0 }}>{reportTitle}</Title>
-                  <Tooltip 
-                    title='若希望根据报告中事件创作小红书文案，请先复制所需事件，然后点击任意"AI修改"按钮，在提示词中输入"创作小红书文案"以及您的其他要求'
-                    placement="top"
-                  >
-                    <QuestionCircleOutlined style={{ color: '#999', cursor: 'pointer', fontSize: '16px', marginLeft: '4px' }} />
-                  </Tooltip>
+                 
                 </div>
                 <Divider />
                 <div className="right-content">
