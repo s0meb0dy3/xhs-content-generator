@@ -82,6 +82,54 @@ function App() {
     '广州城市理工学院'
   ];
 
+  // 添加自定义模板相关状态
+  const [isCustomTemplateModalVisible, setIsCustomTemplateModalVisible] = useState(false);
+  const [customTemplate, setCustomTemplate] = useState('');
+  const [customTemplateName, setCustomTemplateName] = useState('');
+
+  // 添加保存自定义模板的函数
+  const handleSaveCustomTemplate = () => {
+    if (!customTemplateName.trim()) {
+      message.warning('请输入模板名称');
+      return;
+    }
+    if (!customTemplate.trim()) {
+      message.warning('请输入模板内容');
+      return;
+    }
+    
+    // 保存到本地存储
+    const savedTemplates = JSON.parse(localStorage.getItem('customTemplates') || '[]');
+    const newTemplate = {
+      name: customTemplateName,
+      content: customTemplate,
+      id: Date.now()
+    };
+    
+    // 检查是否已存在同名模板
+    const existingIndex = savedTemplates.findIndex(t => t.name === customTemplateName);
+    if (existingIndex >= 0) {
+      savedTemplates[existingIndex] = newTemplate;
+      message.success('模板已更新');
+    } else {
+      savedTemplates.push(newTemplate);
+      message.success('模板已保存');
+    }
+    
+    localStorage.setItem('customTemplates', JSON.stringify(savedTemplates));
+    setIsCustomTemplateModalVisible(false);
+    setCustomTemplate('');
+    setCustomTemplateName('');
+  };
+
+  // 添加删除自定义模板的函数
+  const handleDeleteCustomTemplate = (templateId) => {
+    const savedTemplates = JSON.parse(localStorage.getItem('customTemplates') || '[]');
+    const updatedTemplates = savedTemplates.filter(t => t.id !== templateId);
+    localStorage.setItem('customTemplates', JSON.stringify(updatedTemplates));
+    message.success('模板已删除');
+  };
+
   // 处理学校选择变化
   const handleSchoolChange = (value) => {
     setSchool(value);
@@ -2041,7 +2089,36 @@ function App() {
                   />
                 </div>
                 <div className="workspace-section">
-                  <div className="workspace-section-title">提示词:</div>
+                  <div className="workspace-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>提示词:</span>
+                    <Space>
+                      <Button
+                        size="small"
+                        onClick={() => setPromptText('我是校园论坛的运营者，我需要基于这篇文章，分别以大一女生赞美、大二男生吐槽、大三女生打听求问、大四男生质疑、研一女生点赞、毕业男生羡慕的6个视角提出想法，并以标题+正文的形式发布到校园论坛中来提升校园论坛的活跃度，要求简洁、不要文绉绉、不用书面语、加入一些适合校园论坛发布的日常交流语气。')}
+                      >
+                        模板1：校园论坛
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => setPromptText('我是校园草根自媒体公众号的小编，帮我以学生个人自媒体的角度去改编这条信息，要求幽默风趣、结合互联网热梗、口吻白话化接地气，排版风格适合发布到公众号推文中，300字左右，要求内容跟原文不一样，避免重复')}
+                      >
+                        模板2：公众号
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => setPromptText('我是小红书校园博主，请帮我以学生的角度处理这条信息，生成爆款文案，可以适当添加表情。')}
+                      >
+                        模板3：小红书
+                      </Button>
+                      <Button
+                        size="small"
+                        type="primary"
+                        onClick={() => setIsCustomTemplateModalVisible(true)}
+                      >
+                        自定义模板
+                      </Button>
+                    </Space>
+                  </div>
                   <Input.TextArea
                     className="workspace-textarea workspace-textarea-prompt"
                     value={promptText}
@@ -2516,6 +2593,79 @@ function App() {
           ) : (
             <Empty description="没有可用的图片" />
           )}
+        </div>
+      </Modal>
+
+      {/* 自定义模板弹窗 */}
+      <Modal
+        title="自定义模板"
+        open={isCustomTemplateModalVisible}
+        onCancel={() => {
+          setIsCustomTemplateModalVisible(false);
+          setCustomTemplate('');
+          setCustomTemplateName('');
+        }}
+        footer={[
+          <Button key="cancel" onClick={() => {
+            setIsCustomTemplateModalVisible(false);
+            setCustomTemplate('');
+            setCustomTemplateName('');
+          }}>
+            取消
+          </Button>,
+          <Button key="save" type="primary" onClick={handleSaveCustomTemplate}>
+            保存模板
+          </Button>
+        ]}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Input
+            placeholder="请输入模板名称"
+            value={customTemplateName}
+            onChange={(e) => setCustomTemplateName(e.target.value)}
+            style={{ marginBottom: 16 }}
+          />
+          <Input.TextArea
+            placeholder="请输入模板内容"
+            value={customTemplate}
+            onChange={(e) => setCustomTemplate(e.target.value)}
+            autoSize={{ minRows: 4, maxRows: 8 }}
+          />
+        </div>
+        
+        {/* 显示已保存的自定义模板 */}
+        <div>
+          <Typography.Title level={5}>已保存的模板</Typography.Title>
+          <List
+            dataSource={JSON.parse(localStorage.getItem('customTemplates') || '[]')}
+            renderItem={item => (
+              <List.Item
+                actions={[
+                  <Button
+                    type="link"
+                    onClick={() => {
+                      setPromptText(item.content);
+                      setIsCustomTemplateModalVisible(false);
+                    }}
+                  >
+                    使用
+                  </Button>,
+                  <Button
+                    type="link"
+                    danger
+                    onClick={() => handleDeleteCustomTemplate(item.id)}
+                  >
+                    删除
+                  </Button>
+                ]}
+              >
+                <List.Item.Meta
+                  title={item.name}
+                  description={item.content.length > 50 ? item.content.substring(0, 50) + '...' : item.content}
+                />
+              </List.Item>
+            )}
+          />
         </div>
       </Modal>
     </Layout>
