@@ -11,6 +11,7 @@ const { Option } = Select;
 
 function App() {
   const [school, setSchool] = useState('');
+  const [schoolId, setSchoolId] = useState(''); // 新增schoolId状态
   const [contents, setContents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [crawlLoading, setCrawlLoading] = useState(false);
@@ -56,7 +57,7 @@ function App() {
   const [workspaceImages, setWorkspaceImages] = useState([]); // 新增工作区图片列表
   
   // 预设学校列表
-  const schoolOptions = [
+  const [schoolOptions, setSchoolOptions] = useState([
     '中山大学',
     '华南理工大学',
     '华南师范大学',
@@ -80,12 +81,79 @@ function App() {
     '广州华商学院',
     '南方医科大学',
     '广州城市理工学院'
-  ];
+  ]);
+  const [isSchoolListModalVisible, setIsSchoolListModalVisible] = useState(false);
+  const [editingSchool, setEditingSchool] = useState('');
+  const [newSchool, setNewSchool] = useState('');
 
   // 添加自定义模板相关状态
   const [isCustomTemplateModalVisible, setIsCustomTemplateModalVisible] = useState(false);
   const [customTemplate, setCustomTemplate] = useState('');
   const [customTemplateName, setCustomTemplateName] = useState('');
+
+  // 在组件加载时从localStorage加载学校列表
+  useEffect(() => {
+    const savedSchools = localStorage.getItem('schoolOptions');
+    if (savedSchools) {
+      try {
+        setSchoolOptions(JSON.parse(savedSchools));
+      } catch (e) {
+        console.error('解析学校列表失败:', e);
+      }
+    }
+  }, []);
+
+  // 保存学校列表到localStorage
+  useEffect(() => {
+    localStorage.setItem('schoolOptions', JSON.stringify(schoolOptions));
+  }, [schoolOptions]);
+
+  // 添加新学校
+  const handleAddSchool = () => {
+    if (!newSchool.trim()) {
+      message.warning('请输入学校名称');
+      return;
+    }
+    if (schoolOptions.includes(newSchool.trim())) {
+      message.warning('该学校已存在');
+      return;
+    }
+    setSchoolOptions([...schoolOptions, newSchool.trim()]);
+    setNewSchool('');
+    message.success('添加成功');
+  };
+
+  // 删除学校
+  const handleDeleteSchool = (schoolToDelete) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除"${schoolToDelete}"吗？`,
+      onOk: () => {
+        setSchoolOptions(schoolOptions.filter(s => s !== schoolToDelete));
+        message.success('删除成功');
+      }
+    });
+  };
+
+  // 编辑学校
+  const handleEditSchool = (oldSchool) => {
+    setEditingSchool(oldSchool);
+  };
+
+  // 保存编辑的学校
+  const handleSaveEditSchool = () => {
+    if (!editingSchool.trim()) {
+      message.warning('请输入学校名称');
+      return;
+    }
+    if (schoolOptions.includes(editingSchool.trim()) && editingSchool !== school) {
+      message.warning('该学校已存在');
+      return;
+    }
+    setSchoolOptions(schoolOptions.map(s => s === school ? editingSchool.trim() : s));
+    setEditingSchool('');
+    message.success('修改成功');
+  };
 
   // 添加保存自定义模板的函数
   const handleSaveCustomTemplate = () => {
@@ -397,7 +465,7 @@ function App() {
           parameters: {
             college_name: school
           },
-          workflow_id: '7496379054380482599'
+          workflow_id: '7501906219973591051'
         })
       });
 
@@ -414,6 +482,11 @@ function App() {
             data = JSON.parse(result.data);
           } else {
             data = result.data;
+          }
+          
+          // 处理school_id
+          if (data.school_id) {
+            setSchoolId(data.school_id);
           }
           
           if (data.outputList && data.outputList.length > 0) {
@@ -469,7 +542,7 @@ function App() {
               timestamp: new Date().toLocaleString(),
               request: {
                 college_name: school,
-                workflow_id: '7496379054380482599'
+                workflow_id: '7501906219973591051'
               },
               response: result,
               status: '成功',
@@ -1782,7 +1855,7 @@ function App() {
           title: cleanTitle || "小红书文案",
           body: contentText,
           images_list: workspaceImages, // 使用工作区图片列表
-          school_id: 60, // 默认学校ID
+          school_id: schoolId ? parseInt(schoolId) : 60, // 使用从爬虫API返回的schoolId，如果没有则使用默认值60
           tag_id: 13 // 默认标签ID
         },
         workflow_id: "7498187555692920884"
@@ -2041,6 +2114,14 @@ function App() {
                   <Option key={school} value={school}>{school}</Option>
                 ))}
               </Select>
+              <Button
+                type="primary"
+                size="large"
+                onClick={() => setIsSchoolListModalVisible(true)}
+                icon={<EditOutlined />}
+              >
+                管理学校列表
+              </Button>
             </Space>
             <div>
               <Button
@@ -2056,7 +2137,7 @@ function App() {
                 onMouseEnter={() => setIsHovered(true)}
                 onMouseLeave={() => setIsHovered(false)}
               >
-                爬虫模式
+                获取小红书笔记
               </Button>
             </div>
           </div>
@@ -2222,6 +2303,18 @@ function App() {
                   )}
                 </div>
                 <div className="workspace-actions">
+                  <Input
+                    style={{ width: '120px', marginRight: '8px' }}
+                    value={school}
+                    disabled
+                    placeholder="学校名称"
+                  />
+                  <Input
+                    style={{ width: '80px', marginRight: '8px' }}
+                    value={schoolId}
+                    disabled
+                    placeholder="学校ID"
+                  />
                   <Button
                     type="primary"
                     icon={<SendOutlined />}
@@ -2667,6 +2760,76 @@ function App() {
             )}
           />
         </div>
+      </Modal>
+
+      {/* 学校列表管理弹窗 */}
+      <Modal
+        title="管理学校列表"
+        open={isSchoolListModalVisible}
+        onCancel={() => {
+          setIsSchoolListModalVisible(false);
+          setNewSchool('');
+          setEditingSchool('');
+        }}
+        footer={null}
+        width={600}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Space>
+            <Input
+              placeholder="输入新学校名称"
+              value={newSchool}
+              onChange={(e) => setNewSchool(e.target.value)}
+              style={{ width: 300 }}
+            />
+            <Button type="primary" onClick={handleAddSchool}>
+              添加学校
+            </Button>
+          </Space>
+        </div>
+        
+        <List
+          dataSource={schoolOptions}
+          renderItem={item => (
+            <List.Item
+              actions={[
+                <Button
+                  type="link"
+                  onClick={() => handleEditSchool(item)}
+                >
+                  编辑
+                </Button>,
+                <Button
+                  type="link"
+                  danger
+                  onClick={() => handleDeleteSchool(item)}
+                >
+                  删除
+                </Button>
+              ]}
+            >
+              {editingSchool === item ? (
+                <Space>
+                  <Input
+                    value={editingSchool}
+                    onChange={(e) => setEditingSchool(e.target.value)}
+                    style={{ width: 300 }}
+                  />
+                  <Button type="primary" onClick={handleSaveEditSchool}>
+                    保存
+                  </Button>
+                  <Button onClick={() => setEditingSchool('')}>
+                    取消
+                  </Button>
+                </Space>
+              ) : (
+                <List.Item.Meta
+                  title={item}
+                />
+              )}
+            </List.Item>
+          )}
+        />
       </Modal>
     </Layout>
   );
