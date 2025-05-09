@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Input, Button, Card, List, message, Layout, Typography, Divider, Space, Tooltip, Modal, Select, Tag, Empty, Form } from 'antd';
-import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined, SendOutlined, RobotOutlined, LikeOutlined, MessageOutlined } from '@ant-design/icons';
+import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined, SendOutlined, RobotOutlined, LikeOutlined, MessageOutlined, SettingOutlined } from '@ant-design/icons';
 import { CozeAPI } from '@coze/api';
 import ReactMarkdown from 'react-markdown';
 import './App.css';
@@ -1368,9 +1368,8 @@ function App() {
     pushForm.setFieldsValue({
       title: cleanTitle || "小红书文案",
       body: bodyContent, // 使用除第一行外的内容作为正文
-      images_list: imageUrls, // 设置找到的图片URL列表
-      school_id: 60, // 默认学校ID
-      tag_id: 13, // 默认标签ID
+      image_list: imageUrls, // 设置找到的图片URL列表
+      school_id: schoolId || "15", // 使用当前选中的学校ID，如果没有则默认为"15"
     });
     setIsPushModalVisible(true);
   };
@@ -1479,16 +1478,20 @@ function App() {
     try {
       setPushLoading(true);
       const values = await pushForm.validateFields();
+      
+      // 将图片列表转换为字符串格式
+      let imageListStr = "";
+      if (values.image_list && values.image_list.length > 0) {
+        imageListStr = values.image_list.map(url => `"${url}"`).join(',');
+      }
 
       // 构建符合 Coze API 要求的数据结构
       const cozeRequestData = {
         parameters: {
           title: values.title,
           body: values.body,
-          // 如果 Coze workflow 需要其他参数，可以在这里添加
-          // images_list: Array.isArray(values.images_list) ? values.images_list : [],
-          // school_id: parseInt(values.school_id),
-          // tag_id: parseInt(values.tag_id)
+          image_list: imageListStr,
+          school_id: values.school_id || schoolId || "15" // 优先使用表单值，然后是当前选中的学校ID
         },
         workflow_id: "7498187555692920884"
       };
@@ -1522,6 +1525,16 @@ function App() {
         console.log('Coze API 推送响应状态:', response.status);
         const result = await response.json();
         console.log('Coze API 推送响应内容:', result);
+
+        // 更新API信息并显示模态框
+        setApiInfo({
+          timestamp: new Date().toLocaleString(),
+          request: cozeRequestData,
+          response: result,
+          status: result.code === 0 ? '成功' : '失败',
+          report: JSON.stringify(result.data || {}, null, 2)
+        });
+        setIsModalVisible(true);
 
         // 处理 Coze API 的响应 (通常 code === 0 表示成功)
         if (result.code === 0) {
@@ -1710,12 +1723,12 @@ function App() {
   // 添加图片到表单的函数
   const handleAddImage = (imageUrl) => {
     // 获取当前表单中的图片列表
-    const currentImages = pushForm.getFieldValue('images_list') || [];
+    const currentImages = pushForm.getFieldValue('image_list') || [];
     // 确保不重复添加相同URL
     if (!currentImages.includes(imageUrl)) {
       // 添加新图片URL到列表
       pushForm.setFieldsValue({
-        images_list: [...currentImages, imageUrl]
+        image_list: [...currentImages, imageUrl]
       });
       
       // 同时添加到工作区图片列表
@@ -1849,14 +1862,18 @@ function App() {
       message.loading('正在推送...', 0);
       setPushLoading(true);
       
+      // 将图片列表转换为字符串格式
+      const imageListStr = workspaceImages.length > 0 
+        ? workspaceImages.map(url => `"${url}"`).join(',')
+        : "";
+      
       // 构建符合 Coze API 要求的数据结构
       const cozeRequestData = {
         parameters: {
           title: cleanTitle || "小红书文案",
           body: contentText,
-          images_list: workspaceImages, // 使用工作区图片列表
-          school_id: schoolId ? parseInt(schoolId) : 60, // 使用从爬虫API返回的schoolId，如果没有则使用默认值60
-          tag_id: 13 // 默认标签ID
+          image_list: imageListStr, // 使用字符串形式
+          school_id: schoolId || "15" // 使用当前选中的学校ID，如果没有则默认为"15"
         },
         workflow_id: "7498187555692920884"
       };
@@ -1891,6 +1908,16 @@ function App() {
       console.log('Coze API 推送响应状态:', response.status);
       const result = await response.json();
       console.log('Coze API 推送响应内容:', result);
+
+      // 更新API信息并显示模态框
+      setApiInfo({
+        timestamp: new Date().toLocaleString(),
+        request: cozeRequestData,
+        response: result,
+        status: result.code === 0 ? '成功' : '失败',
+        report: JSON.stringify(result.data || {}, null, 2)
+      });
+      setIsModalVisible(true);
 
       // 处理 Coze API 的响应
       if (result.code === 0) {
@@ -2124,21 +2151,36 @@ function App() {
               </Button>
             </Space>
             <div>
-              <Button
-                type="primary"
-                size="large"
-                onClick={handleCrawl}
-                loading={crawlLoading}
-                className="glow-button"
-                style={{ 
-                  backgroundColor: '#ff4d4f',
-                  borderColor: '#ff4d4f'
-                }}
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
-              >
-                获取小红书笔记
-              </Button>
+              <Space>
+                <Button
+                  type="primary"
+                  size="large"
+                  onClick={() => message.info('爬取管理功能正在开发中，暂未实现')}
+                  style={{ 
+                    backgroundColor: '#1890ff',
+                    borderColor: '#1890ff',
+                    marginRight: '8px'
+                  }}
+                  icon={<SettingOutlined />}
+                >
+                  爬取管理
+                </Button>
+                <Button
+                  type="primary"
+                  size="large"
+                  onClick={handleCrawl}
+                  loading={crawlLoading}
+                  className="glow-button"
+                  style={{ 
+                    backgroundColor: '#ff4d4f',
+                    borderColor: '#ff4d4f'
+                  }}
+                  onMouseEnter={() => setIsHovered(true)}
+                  onMouseLeave={() => setIsHovered(false)}
+                >
+                  获取小红书笔记
+                </Button>
+              </Space>
             </div>
           </div>
           
