@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "name": "每日全量爬取",
+    "time": "08:00",
+    "schoolId": null,
+    "schoolName": "全部学校",
+    "enabled": true,
+    "lastRun": null,
+    "lastStatus": null
+  },
+  {
+    "id": 2,
+    "name": "中午增量爬取",
+    "time": "12:30",
+    "schoolId": null,
+    "schoolName": "全部学校",
+    "enabled": true,
+    "lastRun": null,
+    "lastStatus": null
+  }
+] 
