@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Input, Button, Card, List, message, Layout, Typography, Divider, Space, Tooltip, Modal, Select, Tag, Empty, Form } from 'antd';
-import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined, SendOutlined, RobotOutlined, LikeOutlined, MessageOutlined, SettingOutlined } from '@ant-design/icons';
+import { SearchOutlined, CopyOutlined, ThunderboltOutlined, StarOutlined, HeartOutlined, InfoCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined, QuestionCircleOutlined, HistoryOutlined, DeleteOutlined, RollbackOutlined, FilterOutlined, SendOutlined, RobotOutlined, LikeOutlined, MessageOutlined, SettingOutlined, SyncOutlined } from '@ant-design/icons';
 import { CozeAPI } from '@coze/api';
 import ReactMarkdown from 'react-markdown';
+import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
+import CrawlManagement from './pages/CrawlManagement';
 import './App.css';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 const { Option } = Select;
 
-function App() {
+function MainApp() {
+  const navigate = useNavigate();
   const [school, setSchool] = useState('');
   const [schoolId, setSchoolId] = useState(''); // 新增schoolId状态
   const [contents, setContents] = useState([]);
@@ -57,79 +60,132 @@ function App() {
   const [workspaceImages, setWorkspaceImages] = useState([]); // 新增工作区图片列表
   
   // 预设学校列表
-  const [schoolOptions, setSchoolOptions] = useState([
-    '中山大学',
-    '华南理工大学',
-    '华南师范大学',
-    '广州大学',
-    '广东外语外贸大学',
-    '广州中医药大学',
-    '广东药科大学',
-    '广东工业大学',
-    '广州美术学院',
-    '星海音乐学院',
-    '暨南大学',
-    '广州医科大学',
-    '华南农业大学',
-    '广东白云学院',
-    '广东财经大学',
-    '广东技术师范大学',
-    '广东金融学院',
-    '广州航海学院',
-    '广东第二师范学院',
-    '南国商学院',
-    '广州华商学院',
-    '南方医科大学',
-    '广州城市理工学院'
-  ]);
+  const [schoolOptions, setSchoolOptions] = useState([]);
   const [isSchoolListModalVisible, setIsSchoolListModalVisible] = useState(false);
   const [editingSchool, setEditingSchool] = useState('');
   const [newSchool, setNewSchool] = useState('');
+  const [newSchoolId, setNewSchoolId] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // 添加自定义模板相关状态
   const [isCustomTemplateModalVisible, setIsCustomTemplateModalVisible] = useState(false);
   const [customTemplate, setCustomTemplate] = useState('');
   const [customTemplateName, setCustomTemplateName] = useState('');
 
-  // 在组件加载时从localStorage加载学校列表
-  useEffect(() => {
-    const savedSchools = localStorage.getItem('schoolOptions');
-    if (savedSchools) {
-      try {
-        setSchoolOptions(JSON.parse(savedSchools));
-      } catch (e) {
-        console.error('解析学校列表失败:', e);
+  // 获取学校列表的函数
+  const fetchSchools = async () => {
+    if (isRefreshing) return; // 防止重复请求
+    
+    setIsRefreshing(true);
+    try {
+      const response = await fetch('https://api.coze.cn/v1/workflow/run', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer pat_wBxRH66eSNFjZPp5A9WNMIJg5Ux8JJffhgjkArPPpj2DDdemVvQuVDQbIs47HaGY',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          parameters: {},
+          workflow_id: '7502357002224910348'
+        })
+      });
+
+      const result = await response.json();
+      if (result.code === 0 && result.data) {
+        const data = JSON.parse(result.data);
+        if (data.output && Array.isArray(data.output)) {
+          // 将API返回的学校列表转换为需要的格式
+          const schools = data.output.map(item => ({
+            name: item.school,
+            id: item.school_id
+          }));
+          setSchoolOptions(schools);
+        }
       }
+    } catch (error) {
+      console.error('获取学校列表失败:', error);
+      message.error('获取学校列表失败，请刷新页面重试');
+    } finally {
+      setIsRefreshing(false);
     }
+  };
+
+  // 在组件加载时获取学校列表
+  useEffect(() => {
+    fetchSchools();
+  }, []);
+
+  // 定期刷新学校列表（每5分钟）
+  useEffect(() => {
+    const intervalId = setInterval(fetchSchools, 5 * 60 * 1000);
+    return () => clearInterval(intervalId); // 清理定时器
   }, []);
 
   // 保存学校列表到localStorage
   useEffect(() => {
-    localStorage.setItem('schoolOptions', JSON.stringify(schoolOptions));
+    if (schoolOptions.length > 0) {
+      localStorage.setItem('schoolOptions', JSON.stringify(schoolOptions));
+    }
   }, [schoolOptions]);
 
   // 添加新学校
-  const handleAddSchool = () => {
+  const handleAddSchool = async () => {
     if (!newSchool.trim()) {
       message.warning('请输入学校名称');
       return;
     }
-    if (schoolOptions.includes(newSchool.trim())) {
+    if (!newSchoolId.trim()) {
+      message.warning('请输入学校ID');
+      return;
+    }
+    if (schoolOptions.some(s => s.name === newSchool.trim())) {
       message.warning('该学校已存在');
       return;
     }
-    setSchoolOptions([...schoolOptions, newSchool.trim()]);
-    setNewSchool('');
-    message.success('添加成功');
+    if (schoolOptions.some(s => s.id === newSchoolId.trim())) {
+      message.warning('该学校ID已存在');
+      return;
+    }
+
+    try {
+      const response = await fetch('https://api.coze.cn/v1/workflow/run', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer pat_wBxRH66eSNFjZPp5A9WNMIJg5Ux8JJffhgjkArPPpj2DDdemVvQuVDQbIs47HaGY',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          parameters: {
+            school_name: newSchool.trim(),
+            school_id: newSchoolId.trim()
+          },
+          workflow_id: '7496713330271649792'
+        })
+      });
+
+      const result = await response.json();
+      if (result.code === 0) {
+        // 添加成功后刷新学校列表
+        await fetchSchools();
+        setNewSchool('');
+        setNewSchoolId('');
+        message.success('添加成功');
+      } else {
+        message.error('添加失败：' + (result.msg || '未知错误'));
+      }
+    } catch (error) {
+      console.error('添加学校失败:', error);
+      message.error('添加失败，请重试');
+    }
   };
 
   // 删除学校
   const handleDeleteSchool = (schoolToDelete) => {
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除"${schoolToDelete}"吗？`,
+      content: `确定要删除"${schoolToDelete.name}"吗？`,
       onOk: () => {
-        setSchoolOptions(schoolOptions.filter(s => s !== schoolToDelete));
+        setSchoolOptions(schoolOptions.filter(s => s.name !== schoolToDelete.name));
         message.success('删除成功');
       }
     });
@@ -137,7 +193,7 @@ function App() {
 
   // 编辑学校
   const handleEditSchool = (oldSchool) => {
-    setEditingSchool(oldSchool);
+    setEditingSchool(oldSchool.name);
   };
 
   // 保存编辑的学校
@@ -146,11 +202,11 @@ function App() {
       message.warning('请输入学校名称');
       return;
     }
-    if (schoolOptions.includes(editingSchool.trim()) && editingSchool !== school) {
+    if (schoolOptions.some(s => s.name === editingSchool.trim() && s.name !== school)) {
       message.warning('该学校已存在');
       return;
     }
-    setSchoolOptions(schoolOptions.map(s => s === school ? editingSchool.trim() : s));
+    setSchoolOptions(schoolOptions.map(s => s.name === school ? { ...s, name: editingSchool.trim() } : s));
     setEditingSchool('');
     message.success('修改成功');
   };
@@ -2138,7 +2194,7 @@ function App() {
                 allowClear
               >
                 {schoolOptions.map(school => (
-                  <Option key={school} value={school}>{school}</Option>
+                  <Option key={school.id} value={school.name}>{school.name}</Option>
                 ))}
               </Select>
               <Button
@@ -2155,7 +2211,7 @@ function App() {
                 <Button
                   type="primary"
                   size="large"
-                  onClick={() => message.info('爬取管理功能正在开发中，暂未实现')}
+                  onClick={() => navigate('/crawl-management')}
                   style={{ 
                     backgroundColor: '#1890ff',
                     borderColor: '#1890ff',
@@ -2508,7 +2564,7 @@ function App() {
               }
             >
               {schoolOptions.map(school => (
-                <Option key={school} value={school}>{school}</Option>
+                <Option key={school.id} value={school.name}>{school.name}</Option>
               ))}
             </Select>
             <Select
@@ -2806,74 +2862,74 @@ function App() {
 
       {/* 学校列表管理弹窗 */}
       <Modal
-        title="管理学校列表"
+        title="添加学校"
         open={isSchoolListModalVisible}
         onCancel={() => {
           setIsSchoolListModalVisible(false);
           setNewSchool('');
-          setEditingSchool('');
+          setNewSchoolId('');
         }}
         footer={null}
         width={600}
       >
         <div style={{ marginBottom: 16 }}>
-          <Space>
+          <Space direction="vertical" style={{ width: '100%' }}>
             <Input
-              placeholder="输入新学校名称"
+              placeholder="输入学校名称"
               value={newSchool}
               onChange={(e) => setNewSchool(e.target.value)}
-              style={{ width: 300 }}
+              style={{ width: '100%' }}
             />
-            <Button type="primary" onClick={handleAddSchool}>
+            <Input
+              placeholder="输入学校ID"
+              value={newSchoolId}
+              onChange={(e) => setNewSchoolId(e.target.value)}
+              style={{ width: '100%' }}
+            />
+            <Button type="primary" onClick={handleAddSchool} style={{ width: '100%' }}>
               添加学校
             </Button>
           </Space>
         </div>
         
+        <Divider>
+          <Space>
+            <span>现有学校列表</span>
+            <Button 
+              type="link" 
+              icon={<SyncOutlined spin={isRefreshing} />} 
+              onClick={fetchSchools}
+              disabled={isRefreshing}
+            >
+              刷新
+            </Button>
+          </Space>
+        </Divider>
+        
         <List
           dataSource={schoolOptions}
           renderItem={item => (
-            <List.Item
-              actions={[
-                <Button
-                  type="link"
-                  onClick={() => handleEditSchool(item)}
-                >
-                  编辑
-                </Button>,
-                <Button
-                  type="link"
-                  danger
-                  onClick={() => handleDeleteSchool(item)}
-                >
-                  删除
-                </Button>
-              ]}
-            >
-              {editingSchool === item ? (
-                <Space>
-                  <Input
-                    value={editingSchool}
-                    onChange={(e) => setEditingSchool(e.target.value)}
-                    style={{ width: 300 }}
-                  />
-                  <Button type="primary" onClick={handleSaveEditSchool}>
-                    保存
-                  </Button>
-                  <Button onClick={() => setEditingSchool('')}>
-                    取消
-                  </Button>
-                </Space>
-              ) : (
-                <List.Item.Meta
-                  title={item}
-                />
-              )}
+            <List.Item>
+              <List.Item.Meta
+                title={item.name}
+                description={`ID: ${item.id}`}
+              />
             </List.Item>
           )}
         />
       </Modal>
     </Layout>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<MainApp />} />
+        <Route path="/crawl-management" element={<CrawlManagement />} />
+      </Routes>
+    </Router>
   );
 }
 
