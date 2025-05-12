@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Card, Button, Input, Table, Space, Typography, message, Tag, Modal, Select, Progress, Spin, Row, Col, Divider, TimePicker, Form, Switch, Tooltip } from 'antd';
-import { PlayCircleOutlined, PlusOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, DeleteOutlined, EditOutlined, SaveOutlined, FileOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, PlusOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, DeleteOutlined, EditOutlined, SaveOutlined, FileOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom';
 import defaultTasksConfig from '../tasks-config.json';
 
 const { Content } = Layout;
@@ -19,6 +20,7 @@ const WORKFLOW_ID_GET_SCHOOLS = '7502357002224910348';
 const WORKFLOW_ID_CRAWL = '7498927416393728034';
 
 function CrawlManagement() {
+  const navigate = useNavigate();
   const [cookies, setCookies] = useState([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [newCookie, setNewCookie] = useState('');
@@ -702,9 +704,21 @@ function CrawlManagement() {
   ];
 
   return (
-    <Layout className="layout" style={{ minHeight: '100vh' }}>
-      <Content className="content" style={{ padding: '16px' }}>
-        <Row gutter={16}>
+    <Layout style={{ minHeight: '100vh' }}>
+      <Content style={{ padding: '24px' }}>
+        <Row gutter={[16, 16]}>
+          <Col span={24}>
+            <Button 
+              type="link" 
+              icon={<ArrowLeftOutlined />} 
+              onClick={() => navigate('/')}
+              style={{ marginBottom: '16px' }}
+            >
+              返回主界面
+            </Button>
+          </Col>
+        </Row>
+        <Row gutter={[16, 16]}>
           {/* 左侧：Cookie管理区域 */}
           <Col span={10}>
             <Card 
